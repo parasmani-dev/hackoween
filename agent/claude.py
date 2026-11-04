@@ -21,7 +21,7 @@ class Decision:
 
 
 class ClaudeClient:
-    def __init__(self, *, timeout=30, max_tokens=512):
+    def __init__(self, *, timeout=30, max_tokens=512, audit_request=None):
         self._api_key = os.environ.get("ANTHROPIC_API_KEY")
         self.model = os.environ.get("CLAUDE_MODEL")
         if not self._api_key or not self.model:
@@ -32,6 +32,7 @@ class ClaudeClient:
             raise ValueError("Claude max_tokens must be a positive integer.")
         self.timeout = timeout
         self.max_tokens = max_tokens
+        self._audit_request = audit_request
 
     def decide(self, messages, *, system):
         payload = {
@@ -42,6 +43,8 @@ class ClaudeClient:
             "tools": tool_definitions(),
             "tool_choice": {"type": "auto", "disable_parallel_tool_use": True},
         }
+        if self._audit_request is not None:
+            self._audit_request(payload)
         try:
             content_type, body = request(
                 "https://api.anthropic.com/v1/messages",

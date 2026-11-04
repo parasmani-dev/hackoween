@@ -20,5 +20,11 @@ describes one action attempt. Its UTC timestamp is the dispatch time, and
 `frame_path` is relative to that run directory and points to the numbered PNG
 used for that decision. Consecutive rows may refer to the same frame.
 
+For an integration audit, add `--audit-requests`. The run directory then
+contains `claude_requests.jsonl` with each outbound request body recorded just
+before the send attempt. The audit includes the command and camera pixels in
+base64. Keep it local and review the bodies before sharing findings. HTTP
+headers and API credentials are excluded.
+
 Run the client and loop tests with mocked services using
 `python -m unittest discover -s agent -v`.

@@ -61,17 +61,28 @@ def _terminal_status(state):
     return None
 
 
-def run_command(command, *, engine=None, claude=None, output_root="runs", max_decisions=MAX_DECISIONS):
+def run_command(
+    command, *, engine=None, claude=None, output_root="runs",
+    max_decisions=MAX_DECISIONS, audit_requests=False,
+):
     """Return why the agent stopped. The operator owns evaluation and lifecycle."""
     if not isinstance(command, str) or not command.strip():
         raise ValueError("Provide a fetch command.")
     if type(max_decisions) is not int or not 1 <= max_decisions <= MAX_DECISIONS:
         raise ValueError("Decision limit must be between 1 and 60.")
     engine = EngineClient() if engine is None else engine
-    claude = ClaudeClient() if claude is None else claude
+    if audit_requests and claude is not None:
+        raise ValueError("Configure auditing on the supplied Claude client.")
     root = Path(output_root).resolve()
     root.mkdir(parents=True, exist_ok=True)
     run_dir = Path(mkdtemp(prefix="run-", dir=root))
+
+    def audit_request(payload):
+        with (run_dir / "claude_requests.jsonl").open("a", encoding="utf-8") as audit:
+            audit.write(json.dumps(payload, allow_nan=False) + "\n")
+
+    if claude is None:
+        claude = ClaudeClient(audit_request=audit_request if audit_requests else None)
     history = deque(maxlen=8)
     usage = {"input_tokens": 0, "output_tokens": 0}
     decisions = 0

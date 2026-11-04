@@ -2,11 +2,12 @@
 
 import base64
 import json
+import os
 import unittest
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from PIL import Image
 
@@ -111,3 +112,19 @@ class RunnerTests(unittest.TestCase):
         self.engine.look.return_value = b"bad frame"
         self.assertEqual(self.run_rover().status, "engine_error")
         self.engine.execute.assert_not_called()
+
+    @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "mock-key", "CLAUDE_MODEL": "mock-model"})
+    @patch("agent.claude.request")
+    def test_request_audit_matches_outbound_body_without_headers(self, request):
+        request.return_value = ("application/json", json.dumps({
+            "stop_reason": "tool_use",
+            "content": [{"type": "tool_use", "name": "pickup", "input": {}}],
+            "usage": {"input_tokens": 2, "output_tokens": 1},
+        }).encode())
+        result = run_command("Fetch the red object", engine=self.engine,
+                             output_root=self.temp.name, max_decisions=1, audit_requests=True)
+        audit = (result.run_dir / "claude_requests.jsonl").read_text(encoding="utf-8")
+        self.assertEqual(json.loads(audit), request.call_args.kwargs["payload"])
+        self.assertNotIn("mock-key", audit)
+        self.assertNotIn("x-api-key", audit)
+        self.assertEqual(result.status, "decision_limit")

@@ -14,10 +14,13 @@ def main():
     parser.add_argument("command", help="Operator's fetch command")
     parser.add_argument("--engine-url", default="http://localhost:8080")
     parser.add_argument("--output-root", default="runs")
+    parser.add_argument("--audit-requests", action="store_true",
+                        help="Save Claude request bodies locally without HTTP headers")
     args = parser.parse_args()
     try:
         result = run_command(
-            args.command, engine=EngineClient(args.engine_url), output_root=args.output_root
+            args.command, engine=EngineClient(args.engine_url), output_root=args.output_root,
+            audit_requests=args.audit_requests,
         )
     except (ClaudeError, ValueError) as error:
         parser.error(str(error))
