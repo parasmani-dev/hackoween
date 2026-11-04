@@ -125,7 +125,9 @@ class EngineHandler(BaseHTTPRequestHandler):
             raise ValueError("Incomplete action body")
         body = json.loads(raw_body.decode("utf-8"))
         if parameter == "command":
-            if not isinstance(body, dict) or body.keys() - {"command", "expected_fixture_key"}:
+            if not isinstance(body, dict) or body.keys() - {
+                "command", "expected_fixture_key", "record_pov"
+            }:
                 raise ValueError("Unexpected start fields")
             command = body.get("command")
             if not isinstance(command, str) or not command.strip():
@@ -133,7 +135,10 @@ class EngineHandler(BaseHTTPRequestHandler):
             key = body.get("expected_fixture_key")
             if key is not None and (not isinstance(key, str) or key not in FIXTURE_KEYS):
                 raise ValueError("Invalid expected fixture key")
-            return (key,)
+            record_pov = body.get("record_pov", False)
+            if type(record_pov) is not bool:
+                raise ValueError("Expected boolean record_pov")
+            return (key, command, record_pov)
         expected_fields = {parameter} if parameter is not None else set()
         if not isinstance(body, dict) or body.keys() != expected_fields:
             raise ValueError("Unexpected action fields")

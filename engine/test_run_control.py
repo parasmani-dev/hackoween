@@ -2,12 +2,64 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from time import monotonic, sleep
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 from engine.run_control import RunConflict, RunControl
 
 
 class RunControlTests(unittest.TestCase):
+    def test_capture_finalizes_once_on_collision_or_explicit_finish(self):
+        for collision in (False, True):
+            with self.subTest(collision=collision):
+                adapter = Mock()
+                adapter.start_capture.return_value = "capture-1"
+                adapter.finish_capture.return_value = "private/capture.json"
+                adapter.turn.return_value = {"success": False}
+                control = RunControl(adapter)
+                self.assertEqual(
+                    control.execute("start", (None, "Fetch", True), ()), {"state": "Locate"}
+                )
+                self.assertEqual(
+                    adapter.method_calls[:2], [call.reset(), call.start_capture("Fetch")]
+                )
+                if collision:
+                    for _ in range(4):
+                        control.execute("turn", (90,), ("success",))
+                    adapter.finish_capture.assert_called_once_with()
+                expected = {
+                    "state": "Done",
+                    "outcome": "fail_collision" if collision else "fail_not_reached",
+                    "pov_status": "complete",
+                    "pov_capture_id": "capture-1",
+                    "pov_manifest": "private/capture.json",
+                }
+                self.assertEqual(control.execute("finish", (), ()), expected)
+                self.assertEqual(control.execute("finish", (), ()), expected)
+                adapter.finish_capture.assert_called_once_with()
+
+    def test_capture_errors_and_uncertain_actions_leave_incomplete_pov(self):
+        for failure in ("start_capture", "finish_capture", "drop"):
+            with self.subTest(failure=failure):
+                adapter = Mock()
+                adapter.start_capture.return_value = "capture-1"
+                adapter.finish_capture.return_value = "private/capture.json"
+                adapter.drop.return_value = {"success": True, "in_zone": True}
+                adapter.delivered_fixture_key.return_value = "item_1"
+                getattr(adapter, failure).side_effect = TimeoutError
+                control = RunControl(adapter)
+                control.execute("start", ("item_1", "Fetch", True), ())
+                if failure == "drop":
+                    with self.assertRaises(TimeoutError):
+                        control.execute("drop", (), ("success", "in_zone"))
+                else:
+                    control.execute("drop", (), ("success", "in_zone"))
+                result = control.execute("finish", (), ())
+                self.assertEqual(result["outcome"], "fail_not_reached" if failure == "drop" else "pass")
+                self.assertEqual(result["pov_status"], "incomplete")
+                self.assertNotIn("pov_manifest", result)
+                self.assertEqual(control.execute("finish", (), ()), result)
+                self.assertEqual(adapter.finish_capture.call_count, int(failure == "finish_capture"))
+
     def test_pickup_and_drop_action_phases(self):
         adapter = Mock()
         control = RunControl(adapter)
@@ -128,6 +180,8 @@ class RunControlTests(unittest.TestCase):
         adapter = Mock()
         adapter.drop.return_value = {"success": True, "in_zone": True}
         adapter.delivered_fixture_key.return_value = "item_1"
+        adapter.start_capture.return_value = "capture-1"
+        adapter.finish_capture.return_value = "private/capture.json"
 
         def look():
             reading.set()
@@ -137,7 +191,7 @@ class RunControlTests(unittest.TestCase):
 
         adapter.look.side_effect = look
         control = RunControl(adapter)
-        control.execute("start", ("item_1",), ())
+        control.execute("start", ("item_1", "Fetch", True), ())
         with ThreadPoolExecutor(max_workers=2) as pool:
             read = pool.submit(control.look)
             try:
@@ -158,4 +212,9 @@ class RunControlTests(unittest.TestCase):
 
         adapter.drop.assert_called_once_with()
         adapter.reset.assert_called_once_with()
-        self.assertEqual(control.execute("finish", (), ()), {"state": "Done", "outcome": "pass"})
+        adapter.finish_capture.assert_called_once_with()
+        self.assertEqual(control.execute("finish", (), ()), {
+            "state": "Done", "outcome": "pass", "pov_status": "complete",
+            "pov_capture_id": "capture-1", "pov_manifest": "private/capture.json",
+        })
+        adapter.finish_capture.assert_called_once_with()
