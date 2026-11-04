@@ -12,6 +12,7 @@ import time
 from tempfile import mkdtemp
 from io import BytesIO
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from PIL import Image
@@ -19,7 +20,7 @@ from PIL import Image
 from simulation.adapter import WebotsAdapter
 
 
-def check(server):
+def check(server, adapter):
     root = f"http://127.0.0.1:{server.server_port}"
 
     def call(route, payload=None):
@@ -59,18 +60,39 @@ def check(server):
     assert call("/pickup", {}) == {"success": False}
     assert call("/drop", {}) == {"success": False, "in_zone": False}
 
-    drive(-1.01, 0.44)
-    face(-0.55, 0.65)
-    assert call("/pickup", {}) == {"success": True}, state()
-    assert state()["holding"]
-    drive(-0.65, state()["y"])
-    drive(-0.65, -1.65)
-    drive(1.28, -1.65)
-    assert call("/drop", {}) == {"success": True, "in_zone": True}, state()
-    assert state()["state"] == "Done" and not state()["holding"]
-    print("PASS: full motor-driven fetch through HTTP")
+    assert adapter.delivered_fixture_key() is None
+    try:
+        call("/delivered_fixture_key")
+    except HTTPError as error:
+        with error:
+            assert error.code == 404
+    else:
+        raise AssertionError("Private fixture key unexpectedly has an HTTP route")
 
+    def fetch():
+        drive(-1.01, 0.44)
+        face(-0.55, 0.65)
+        assert call("/pickup", {}) == {"success": True}, state()
+        assert state()["holding"]
+        drive(-0.65, state()["y"])
+        drive(-0.65, -1.65)
+        drive(1.28, -1.65)
+        assert call("/drop", {}) == {"success": True, "in_zone": True}, state()
+        assert state()["state"] == "Done" and not state()["holding"]
+        assert adapter.delivered_fixture_key() == "item_1"
+
+    fetch()
+    print("PASS: full motor-driven fetch through HTTP and private delivery key")
     assert call("/run/reset", {}) == {"state": "Idle"}
+    assert adapter.delivered_fixture_key() is None
+
+    assert call("/run/start", command) == {"state": "Locate"}
+    fetch()
+    # Engine actions are gated after Done. Exercise a subsequent attempt directly.
+    assert adapter.drop() == {"success": False, "in_zone": False}
+    assert adapter.delivered_fixture_key() is None
+    print("PASS: private key clears on reset and subsequent drop attempt")
+
     assert call("/run/start", command) == {"state": "Locate"}
     assert call("/move", {"distance": -2}) == {"success": False, "collided": True}
     blocked = state()
@@ -143,7 +165,7 @@ def main():
                 if run.returncode:
                     raise SystemExit(run.returncode)
                 return
-            check(server)
+            check(server, adapter)
         finally:
             server.shutdown()
             worker.join()

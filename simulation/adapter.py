@@ -40,6 +40,10 @@ class WebotsAdapter:
     def drop(self):
         return self._call("drop")
 
+    def delivered_fixture_key(self) -> str | None:
+        """Return private evaluator data for the latest qualifying drop."""
+        return self._call("delivered_fixture_key")
+
     def reset(self):
         self._call("reset")
 

@@ -33,6 +33,7 @@ class Scene:
 
     def reset(self):
         self.held = None
+        self._delivered_fixture_key = None
         self.status = "Idle"
         self.drive.after_step = None
         self.drive.command(0, 0)
@@ -96,6 +97,7 @@ class Scene:
         return dict(success=True)
 
     def drop(self):
+        self._delivered_fixture_key = None
         if not self.held:
             return dict(success=False, in_zone=False)
         released = self.held
@@ -105,13 +107,18 @@ class Scene:
             self.drive.step()
         x, y, _ = released.getPosition()
         in_zone = abs(x - self.zone[0]) <= 0.65 and abs(y - self.zone[1]) <= 0.65
+        if in_zone:
+            self._delivered_fixture_key = f"item_{self.objects.index(released) + 1}"
         self.status = "Done" if in_zone else "Drop"
         return dict(success=True, in_zone=in_zone)
+
+    def delivered_fixture_key(self):
+        return self._delivered_fixture_key
 
 
 def serve(scene, port):
     handlers = {name: getattr(scene, name) for name in
-                ("state", "look", "move", "turn", "pickup", "drop", "reset")}
+                ("state", "look", "move", "turn", "pickup", "drop", "reset", "delivered_fixture_key")}
     with socket.create_server(("127.0.0.1", port)) as listener:
         while True:
             connection, _ = listener.accept()
