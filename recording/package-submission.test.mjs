@@ -36,7 +36,13 @@ test('submission packages only the complete capture belonging to each attempt', 
         args: {}, result: { success: true }, frame_path: 'frames/0000.png',
       };
       await writeFile(join(agent, 'steps.jsonl'),
-        [step, { ...step, step: 2, result: { outcome: 'uncertain' } }]
+        [
+          step,
+          { ...step, step: 2, result: { outcome: 'uncertain' } },
+          { ...step, step: 3, tool: 'turn', args: { degrees: 45 },
+            result: { outcome: 'not_dispatched', reason: 'navigation_guard' } },
+          { ...step, step: 4, tool: null, result: { outcome: 'not_dispatched', reason: 'provider_error' } },
+        ]
           .map(row => JSON.stringify(row)).join('\n') + '\n');
 
       const frames = [];
@@ -160,6 +166,10 @@ test('submission packages only the complete capture belonging to each attempt', 
       ['private-top-level', { authorization: 'private fixture' }],
       ['private-arg', { args: { fixture_key: 'private fixture' } }],
       ['private-result', { result: { success: true, verdict: 'private fixture' } }],
+      ['private-provider-reason', { tool: null, result: { outcome: 'not_dispatched', reason: 'raw provider error' } }],
+      ['null-dispatched-tool', { tool: null }],
+      ['provider-error-with-args', { tool: null, args: { degrees: 45 },
+        result: { outcome: 'not_dispatched', reason: 'provider_error' } }],
     ]) {
       await writeFile(logPath, JSON.stringify({ ...step, ...fields }) + '\n');
       const rejected = await packageRuns(name, runs);

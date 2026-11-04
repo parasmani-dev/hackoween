@@ -28,10 +28,16 @@ function validToolCall(step) {
       !/^(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.png$/.test(step.frame_path)) {
     return false;
   }
+  const notDispatched = hasFields(step.result, ['outcome', 'reason']) &&
+    step.result.outcome === 'not_dispatched';
+  if (step.tool === null) {
+    return hasFields(step.args, []) && notDispatched && step.result.reason === 'provider_error';
+  }
   const action = tools.get(step.tool);
   if (!action || !hasFields(step.args, action.arg ? [action.arg] : []) ||
       (action.arg && !Number.isFinite(step.args[action.arg]))) return false;
-  return (hasFields(step.result, ['outcome']) && step.result.outcome === 'uncertain') ||
+  return (step.tool === 'turn' && notDispatched && step.result.reason === 'navigation_guard') ||
+    (hasFields(step.result, ['outcome']) && step.result.outcome === 'uncertain') ||
     (hasFields(step.result, action.result) && action.result.every(field => typeof step.result[field] === 'boolean'));
 }
 
