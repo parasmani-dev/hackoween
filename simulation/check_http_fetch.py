@@ -186,7 +186,8 @@ def finish_run(operator_call, reason):
 
 def run_live(server, adapter, args):
     root = f"http://127.0.0.1:{server.server_port}"
-    output_root = Path("runs/live").resolve()
+    mode = getattr(args, "execution_mode", "live")
+    output_root = Path("runs/live" if mode == "live" else "runs/offline-agent").resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     evidence_dir = Path(mkdtemp(prefix="attempt-", dir=output_root))
     provenance = prepare_attempt(args, evidence_dir)
@@ -263,6 +264,7 @@ def parse_args(argv=None):
     parser.add_argument("--engine-port", type=int, choices=range(1, 65536), metavar="1..65535", default=8080)
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--measure-timing", action="store_true")
+    parser.add_argument("--offline-agent-check", action="store_true")
     parser.add_argument("--agent-root", type=Path)
     parser.add_argument("--provider", choices=("claude", "openai"), default="claude")
     parser.add_argument("--command")
@@ -283,7 +285,7 @@ def parse_args(argv=None):
         parser.error("--command must not be blank")
     if args.command and not args.expected_fixture_key:
         parser.error("--expected-fixture-key is required for an assessed command run")
-    if args.command and args.measure_timing:
+    if args.command and (args.measure_timing or args.offline_agent_check):
         parser.error("--measure-timing is for offline rehearsal only")
     if args.command and args.max_decisions is None:
         parser.error("--max-decisions is required with --command")
@@ -353,6 +355,9 @@ def main():
                 print("PASS: operator Start, camera, status and Reset through the UI proxy")
             else:
                 check(server, adapter)
+            if args.offline_agent_check:
+                from simulation.offline_agent_check import check_agent
+                check_agent(server, adapter)
         finally:
             if ui_process is not None:
                 ui_process.terminate()

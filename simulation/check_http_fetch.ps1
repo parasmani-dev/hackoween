@@ -7,6 +7,7 @@ param(
     [ValidateRange(1, 65535)]
     [int]$EnginePort = 8080,
     [switch]$MeasureTiming,
+    [switch]$OfflineAgentCheck,
     [string]$AgentRoot,
     [ValidateSet("claude", "openai")]
     [string]$Provider = "claude",
@@ -35,6 +36,7 @@ if ($PSBoundParameters.ContainsKey("OfficialSlot")) { $checkArgs += @("--officia
 if ($OfficialLedger) { $checkArgs += @("--official-ledger", $OfficialLedger) }
 if ($UiServer) { $checkArgs += @('--ui-server', $UiServer) }
 if ($MeasureTiming) { $checkArgs += '--measure-timing' }
+if ($OfflineAgentCheck) { $checkArgs += '--offline-agent-check' }
 $webotsArgs = @('--batch', '--mode=fast', '--minimize')
 $window = 'Hidden'
 if ($Command) {

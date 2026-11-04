@@ -11,6 +11,7 @@ def prepare_attempt(args, evidence_dir):
     model_variable = "CLAUDE_MODEL" if args.provider == "claude" else "OPENAI_MODEL"
     record = {
         "attempt_id": evidence_dir.name,
+        "execution_mode": getattr(args, "execution_mode", "live"),
         "provider": args.provider,
         "model": os.environ.get(model_variable),
         "command_sha256": hashlib.sha256(args.command.encode("utf-8")).hexdigest(),
