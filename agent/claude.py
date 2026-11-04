@@ -60,6 +60,9 @@ class ClaudeClient:
             name, args = calls[0]["name"], calls[0]["input"]
             validate_action(name, args)
             usage = {key: response["usage"][key] for key in ("input_tokens", "output_tokens")}
+            for key in ("cache_creation_input_tokens", "cache_read_input_tokens"):
+                if response["usage"].get(key) is not None:
+                    usage[key] = response["usage"][key]
             if any(type(value) is not int or value < 0 for value in usage.values()):
                 raise ValueError
             return Decision(name, args, usage)

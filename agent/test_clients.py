@@ -79,7 +79,7 @@ class EngineClientTests(unittest.TestCase):
 class ClaudeClientTests(unittest.TestCase):
     @patch("agent.claude.request")
     def test_valid_decision_and_request(self, request):
-        usage = {"input_tokens": 20, "output_tokens": 8}
+        usage = {"input_tokens": 20, "output_tokens": 8, "cache_read_input_tokens": 12}
         request.return_value = json_response({
             "stop_reason": "tool_use",
             "content": [{"type": "tool_use", "name": "move", "input": {"distance": -0.5}}],

@@ -61,12 +61,13 @@ class RunnerTests(unittest.TestCase):
         ]
         actions = [("move", {"distance": 0.5}), ("turn", {"degrees": 45}), ("pickup", {}), ("drop", {})]
         self.claude.decide.side_effect = [
-            Decision(name, args, {"input_tokens": 2, "output_tokens": 1}) for name, args in actions
+            Decision(name, args, {"input_tokens": 2, "output_tokens": 1, "cache_read_input_tokens": 3})
+            for name, args in actions
         ]
         result = self.run_rover()
         self.assertEqual(result.status, "engine_done")
         self.assertEqual(result.decisions, 4)
-        self.assertEqual(result.usage, {"input_tokens": 8, "output_tokens": 4})
+        self.assertEqual(result.usage, {"input_tokens": 8, "output_tokens": 4, "cache_read_input_tokens": 12})
         self.assertEqual(self.engine.look.call_count, 3)
         self.assertEqual([call.args for call in self.engine.execute.call_args_list], actions)
         rows = self.records(result)
