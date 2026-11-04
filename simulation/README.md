@@ -36,13 +36,13 @@ The rover reverses into the west wall, stops, backs away by 0.1 m, turns clockwi
 
 ## Full fetch through HTTP
 
-From the repository root, with Pillow installed, pass the path to Vernit's engine server checkout. The launcher starts a temporary Webots world, uses the real bridge with the engine's create_server factory, and checks the fetch and wall collision via HTTP. The fixture uses a private adapter reset between scenarios.
+From the repository root, with Pillow installed, pass the path to Vernit's engine server checkout. The launcher starts a temporary Webots world, uses the real bridge with the engine's create_server factory, and checks the fetch and wall collision via HTTP. The fixture uses HTTP start and reset, then verifies collision backoff and retry exhaustion.
 
 ```powershell
 .\simulation\check_http_fetch.ps1 -EngineServer '..\engine-checkout\engine\server.py'
 ```
 
-The bridge binds only to loopback. The launcher defaults to port 18765 for the check. The production adapter and bridge default to 8765. Depth is optional and currently unavailable. The HTTP fixture targets the diagnostic engine action routes at ae23839. Operator lifecycle, retry counting, and target correctness evaluation require the later engine integration.
+The bridge binds only to loopback. The launcher defaults to port 18765 for the check. The production adapter and bridge default to 8765. Depth is optional and currently unavailable. Use engine revision 96c0d5d or a compatible later revision with operator lifecycle routes. Private target correctness evaluation is tracked separately.
 
 ## Live model run
 
@@ -52,4 +52,4 @@ Pass Vernit's server and Archit's checkout to the same launcher. Set the selecte
 .\simulation\check_http_fetch.ps1 -EngineServer '<engine-checkout>\engine\server.py' -AgentRoot '<agent-checkout>' -Provider openai -Command 'Fetch the red sphere and drop it in the green zone'
 ```
 
-The launcher starts the operator run and agent, then keeps request audits and frame logs under runs/live. The agent stop reason indicates engine termination. Record the delivery verdict separately.
+The launcher starts the operator run and agent, then keeps request audits, frame logs, and the final camera image in a unique attempt directory under runs/live. The agent stop reason indicates engine termination. Record the delivery verdict separately.

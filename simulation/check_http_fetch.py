@@ -9,6 +9,7 @@ import subprocess
 import sys
 import threading
 import time
+from tempfile import mkdtemp
 from io import BytesIO
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -18,7 +19,7 @@ from PIL import Image
 from simulation.adapter import WebotsAdapter
 
 
-def check(server, server_adapter):
+def check(server):
     root = f"http://127.0.0.1:{server.server_port}"
 
     def call(route, payload=None):
@@ -46,6 +47,8 @@ def check(server, server_adapter):
         distance = math.hypot(x - pose["x"], y - pose["y"])
         assert call("/move", {"distance": distance}) == {"success": True, "collided": False}
 
+    command = {"command": "Fetch the red sphere and drop it in the green zone"}
+    assert call("/run/start", command) == {"state": "Locate"}
     initial = state()
     frame = call("/look")
     with Image.open(BytesIO(frame)) as image:
@@ -67,11 +70,22 @@ def check(server, server_adapter):
     assert state()["state"] == "Done" and not state()["holding"]
     print("PASS: full motor-driven fetch through HTTP")
 
-    server_adapter.reset()
+    assert call("/run/reset", {}) == {"state": "Idle"}
+    assert call("/run/start", command) == {"state": "Locate"}
     assert call("/move", {"distance": -2}) == {"success": False, "collided": True}
     blocked = state()
     assert blocked["state"] == "Blocked" and -2.73 < blocked["x"] < -2.5, blocked
-    print("PASS: wall contact and automatic backoff through HTTP")
+    assert blocked["retry_count"] == 0
+    for retry in range(1, 4):
+        assert call("/move", {"distance": -2}) == {"success": False, "collided": True}
+        current = state()
+        assert current["retry_count"] == retry
+        assert current["state"] == ("Done" if retry == 3 else "Blocked")
+    print("PASS: wall contact, automatic backoff and three HTTP retries")
+    assert call("/run/reset", {}) == {"state": "Idle"}
+    reset = state()
+    assert abs(reset["x"] + 2) < 0.02 and not reset["holding"] and reset["retry_count"] == 0
+    print("PASS: operator reset through HTTP")
 
 
 def main():
@@ -114,23 +128,22 @@ def main():
                 request = Request(root + "/run/start", data=json.dumps({"command": args.command}).encode())
                 with urlopen(request, timeout=35) as response:
                     assert json.load(response)["state"] == "Locate"
+                output_root = Path("runs/live").resolve()
+                output_root.mkdir(parents=True, exist_ok=True)
+                evidence_dir = Path(mkdtemp(prefix="attempt-", dir=output_root))
                 run = subprocess.run([
                     sys.executable, "-m", "agent", args.command,
                     "--provider", args.provider, "--engine-url", root,
-                    "--audit-requests", "--output-root", str(Path("runs/live").resolve()),
+                    "--audit-requests", "--output-root", str(evidence_dir),
                 ], cwd=args.agent_root)
-                if run.returncode:
-                    raise SystemExit(run.returncode)
-                evidence = Path("runs/live/final-camera.jpg")
+                evidence = evidence_dir / "final-camera.jpg"
                 evidence.write_bytes(adapter.look())
                 print(f"Final rover camera: {evidence.resolve()}")
                 print("Record the private delivery verdict separately from the agent stop reason.")
+                if run.returncode:
+                    raise SystemExit(run.returncode)
                 return
-            check(server, adapter)
-            adapter.reset()
-            state = adapter.state()
-            assert state["state"] == "Idle" and abs(state["x"] + 2) < 0.02 and not state["holding"]
-            print("PASS: private simulator reset")
+            check(server)
         finally:
             server.shutdown()
             worker.join()
