@@ -2,11 +2,16 @@ import json
 import logging
 import math
 from functools import partial
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from urllib.parse import urlsplit
 
 from PIL import Image, ImageDraw
+
+if __package__:
+    from .run_control import RunConflict, RunControl
+else:
+    from run_control import RunConflict, RunControl
 
 
 STATE_FIELDS = ("state", "x", "y", "heading", "holding", "retry_count")
@@ -15,6 +20,8 @@ ACTION_ROUTES = {
     "/turn": ("turn", "degrees", ("success",)),
     "/pickup": ("pickup", None, ("success",)),
     "/drop": ("drop", None, ("success", "in_zone")),
+    "/run/start": ("start", "command", ()),
+    "/run/reset": ("reset", None, ()),
 }
 MAX_ACTION_BODY = 1024
 
@@ -47,23 +54,26 @@ class DiagnosticAdapter:
     def drop(self):
         return {"success": False, "in_zone": False}
 
+    def reset(self):
+        pass
+
 
 class EngineHandler(BaseHTTPRequestHandler):
-    def __init__(self, *args, adapter, **kwargs):
-        self.adapter = adapter
+    def __init__(self, *args, control, **kwargs):
+        self.control = control
         super().__init__(*args, **kwargs)
 
     def do_GET(self):
         path = urlsplit(self.path).path
         try:
             if path == "/state":
-                state = self.adapter.state()
+                state = self.control.state()
                 body = json.dumps(
                     {field: state[field] for field in STATE_FIELDS}, allow_nan=False
                 ).encode("utf-8")
                 content_type = "application/json"
             elif path == "/look":
-                body = self.adapter.look()
+                body = self.control.look()
                 content_type = "image/jpeg"
             else:
                 self.write_response(404, "application/json", b'{"error":"not_found"}')
@@ -89,11 +99,12 @@ class EngineHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            result = getattr(self.adapter, method)(*args)
-            payload = {field: result[field] for field in response_fields}
-            if any(type(value) is not bool for value in payload.values()):
-                raise ValueError("Action results must contain boolean flags")
+            payload = self.control.execute(method, args, response_fields)
             body = json.dumps(payload).encode("utf-8")
+        except RunConflict as conflict:
+            body = json.dumps({"error": str(conflict)}).encode("utf-8")
+            self.write_response(409, "application/json", body)
+            return
         except Exception:
             logging.exception("Engine action failed")
             self.write_response(500, "application/json", b'{"error":"engine_action_failed"}')
@@ -118,6 +129,10 @@ class EngineHandler(BaseHTTPRequestHandler):
         if parameter is None:
             return ()
         value = body[parameter]
+        if parameter == "command":
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError("Expected a non-empty command")
+            return (value.strip(),)
         if type(value) not in (int, float) or not math.isfinite(value):
             raise ValueError("Expected a finite number")
         return (value,)
@@ -130,8 +145,11 @@ class EngineHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def create_server(adapter, port=8080):
-    return HTTPServer(("127.0.0.1", port), partial(EngineHandler, adapter=adapter))
+def create_server(adapter, port=8080, *, evaluate_delivery=None):
+    control = RunControl(adapter, evaluate_delivery)
+    return ThreadingHTTPServer(
+        ("127.0.0.1", port), partial(EngineHandler, control=control)
+    )
 
 
 if __name__ == "__main__":
