@@ -1,0 +1,234 @@
+#VRML_SIM R2025a utf8
+
+WorldInfo { basicTimeStep 32 coordinateSystem "ENU" }
+Viewpoint { position 0 0 10 }
+Background { skyColor [ 0.35 0.43 0.53 ] }
+DirectionalLight { direction -0.5 0.4 -1 intensity 1 ambientIntensity 0.55 }
+DEF FLOOR Solid {
+  translation 0 0 -0.05
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.64 0.65 0.68 roughness 0.85 metalness 0 }
+      geometry Box { size 6 5 0.1 }
+    }
+  ]
+  boundingObject Box { size 6 5 0.1 }
+}
+DEF NORTH Solid {
+  translation 0 2.55 0.75
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.82 0.84 0.88 roughness 0.85 metalness 0 }
+      geometry Box { size 6.2 0.1 1.5 }
+    }
+  ]
+  boundingObject Box { size 6.2 0.1 1.5 }
+}
+DEF SOUTH Solid {
+  translation 0 -2.55 0.75
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.82 0.84 0.88 roughness 0.85 metalness 0 }
+      geometry Box { size 6.2 0.1 1.5 }
+    }
+  ]
+  boundingObject Box { size 6.2 0.1 1.5 }
+}
+DEF EAST Solid {
+  translation 3.05 0 0.75
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.82 0.84 0.88 roughness 0.85 metalness 0 }
+      geometry Box { size 0.1 5 1.5 }
+    }
+  ]
+  boundingObject Box { size 0.1 5 1.5 }
+}
+DEF WEST Solid {
+  translation -3.05 0 0.75
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.82 0.84 0.88 roughness 0.85 metalness 0 }
+      geometry Box { size 0.1 5 1.5 }
+    }
+  ]
+  boundingObject Box { size 0.1 5 1.5 }
+}
+DEF DROP_ZONE Pose {
+  translation 1.8 -1.65 0.003
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.03 0.7 0.44 roughness 0.85 metalness 0 }
+      geometry Box { size 1.3 1.3 0.006 }
+    }
+  ]
+}
+DEF ITEM_1 Solid {
+  translation -0.55 0.65 0.17
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.9 0.05 0.04 roughness 0.85 metalness 0 }
+      geometry Sphere { radius 0.17 }
+    }
+  ]
+  boundingObject Sphere { radius 0.17 }
+  physics Physics { mass 0.2 density -1 }
+}
+DEF ITEM_2 Solid {
+  translation 0.25 -0.55 0.18
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.9 0.05 0.04 roughness 0.85 metalness 0 }
+      geometry Box { size 0.36 0.36 0.36 }
+    }
+  ]
+  boundingObject Box { size 0.36 0.36 0.36 }
+  physics Physics { mass 0.2 density -1 }
+}
+DEF ITEM_3 Solid {
+  translation 1.55 0.6 0.23
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.05 0.31 0.94 roughness 0.85 metalness 0 }
+      geometry Cylinder { radius 0.15 height 0.46 }
+    }
+  ]
+  boundingObject Cylinder { radius 0.15 height 0.46 }
+  physics Physics { mass 0.2 density -1 }
+}
+DEF ITEM_4 Solid {
+  translation 0.65 1.6 0.17
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.05 0.31 0.94 roughness 0.85 metalness 0 }
+      geometry Sphere { radius 0.17 }
+    }
+  ]
+  boundingObject Sphere { radius 0.17 }
+  physics Physics { mass 0.2 density -1 }
+}
+DEF ITEM_5 Solid {
+  translation -1.25 -1.5 0.28
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.95 0.65 0.03 roughness 0.85 metalness 0 }
+      geometry Cone { bottomRadius 0.19 height 0.56 }
+    }
+  ]
+  boundingObject Cone { bottomRadius 0.19 height 0.56 }
+  physics Physics { mass 0.2 density -1 }
+}
+DEF ITEM_6 Solid {
+  translation 2.35 1.65 0.18
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.64 0.12 0.84 roughness 0.85 metalness 0 }
+      geometry Box { size 0.36 0.36 0.36 }
+    }
+  ]
+  boundingObject Box { size 0.36 0.36 0.36 }
+  physics Physics { mass 0.2 density -1 }
+}
+DEF ROVER Robot {
+  translation -2 0 0
+  supervisor TRUE
+  controller "scene_preview"
+  children [
+    Pose {
+      translation 0 0 0.19
+      children [ Shape {
+      appearance PBRAppearance { baseColor 0.1 0.19 0.28 roughness 0.85 metalness 0 }
+      geometry Box { size 0.42 0.34 0.18 }
+    } ]
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters {
+        axis 0 1 0
+        anchor -0.14 -0.19 0.1
+      }
+      device [ RotationalMotor { name "wheel_0" maxVelocity 16 maxTorque 8 } ]
+      endPoint Solid {
+        translation -0.14 -0.19 0.1
+        rotation 1 0 0 1.570796
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor 0.06 0.06 0.07 roughness 0.85 metalness 0 }
+            geometry Cylinder { radius 0.1 height 0.05 }
+          }
+        ]
+        boundingObject Cylinder { radius 0.1 height 0.05 }
+        physics Physics { density -1 mass 0.12 }
+      }
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters {
+        axis 0 1 0
+        anchor 0.14 -0.19 0.1
+      }
+      device [ RotationalMotor { name "wheel_1" maxVelocity 16 maxTorque 8 } ]
+      endPoint Solid {
+        translation 0.14 -0.19 0.1
+        rotation 1 0 0 1.570796
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor 0.06 0.06 0.07 roughness 0.85 metalness 0 }
+            geometry Cylinder { radius 0.1 height 0.05 }
+          }
+        ]
+        boundingObject Cylinder { radius 0.1 height 0.05 }
+        physics Physics { density -1 mass 0.12 }
+      }
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters {
+        axis 0 1 0
+        anchor -0.14 0.19 0.1
+      }
+      device [ RotationalMotor { name "wheel_2" maxVelocity 16 maxTorque 8 } ]
+      endPoint Solid {
+        translation -0.14 0.19 0.1
+        rotation 1 0 0 1.570796
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor 0.06 0.06 0.07 roughness 0.85 metalness 0 }
+            geometry Cylinder { radius 0.1 height 0.05 }
+          }
+        ]
+        boundingObject Cylinder { radius 0.1 height 0.05 }
+        physics Physics { density -1 mass 0.12 }
+      }
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters {
+        axis 0 1 0
+        anchor 0.14 0.19 0.1
+      }
+      device [ RotationalMotor { name "wheel_3" maxVelocity 16 maxTorque 8 } ]
+      endPoint Solid {
+        translation 0.14 0.19 0.1
+        rotation 1 0 0 1.570796
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor 0.06 0.06 0.07 roughness 0.85 metalness 0 }
+            geometry Cylinder { radius 0.1 height 0.05 }
+          }
+        ]
+        boundingObject Cylinder { radius 0.1 height 0.05 }
+        physics Physics { density -1 mass 0.12 }
+      }
+    }
+    Camera {
+      translation 0.22 0 0.5
+      rotation 0 1 0 0.174533
+      name "front_camera"
+      width 1280
+      height 960
+      fieldOfView 1.570796
+    }
+  ]
+  boundingObject Pose {
+    translation 0 0 0.15
+    children [ Box { size 0.52 0.46 0.20 } ]
+  }
+  physics Physics { density -1 mass 1.5 }
+}
