@@ -118,12 +118,38 @@ class RoverDrive:
         return self.move(retreat, speed=0.25, leave_contact=True)
 
 
+def check_no_contact_stall(drive, report):
+    """Test-only wheel fault: real physics runs, but commanded wheels stay stopped."""
+    original_command = drive.command
+    try:
+        drive.command = lambda forward, yaw_rate: original_command(0, 0)
+        for distance in (0.5, -0.5):
+            if drive.contact():
+                raise RuntimeError("Stall fixture must start clear of walls")
+            started = drive.robot.getTime()
+            before = drive.node.getPosition()
+            if drive.move(distance):
+                raise RuntimeError("Stationary wheels incorrectly completed a move")
+            elapsed = drive.robot.getTime() - started
+            after = drive.node.getPosition()
+            if drive.contact() or math.dist(before, after) > 0.005:
+                raise RuntimeError("Stall fixture moved or touched a wall")
+            if not 2.0 - 1e-8 <= elapsed <= 2.0 + drive.dt + 1e-8:
+                raise RuntimeError(f"Stall timeout outside one physics step: {elapsed}")
+            report(f"STALL: no contact, distance={distance}, stopped after {elapsed:.3f} sim s")
+    finally:
+        drive.command = original_command
+        drive.stop()
+
+
 def run_check(robot, report):
     camera = robot.getDevice("front_camera")
     drive = RoverDrive(robot)
     camera.enable(drive.timestep)
     for _ in range(12):
         drive.step()
+
+    check_no_contact_stall(drive, report)
 
     if drive.move(-2):
         raise RuntimeError("Reverse command should have hit the west wall")

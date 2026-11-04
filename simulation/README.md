@@ -122,3 +122,5 @@ rejected, including after failure. Claims are not automatically deleted. This
 local safeguard cannot enforce attempts made on other computers or another ledger.
 Do not use real official slots in rehearsals. No model call is authorized merely
 by these instructions.
+
+For the combined offline regression command and the remaining acceptance gates, see [offline readiness](../docs/OFFLINE_READINESS.md).
