@@ -8,7 +8,8 @@ param(
     [string]$Provider = "claude",
     [string]$Command,
     [string]$ExpectedFixtureKey,
-    [switch]$RecordPov
+    [switch]$RecordPov,
+    [string]$UiServer
 )
 
 $ErrorActionPreference = 'Stop'
@@ -20,6 +21,9 @@ $world=Join-Path $output 'worlds/fetch_room.wbt'
 $env:ROVER_WEBOTS_PORT = [string]$BridgePort
 $exe=(Resolve-Path -LiteralPath $WebotsExe).Path
 $checkArgs = @("$EngineServer", '--bridge-port', "$BridgePort")
+if ($UiServer) {
+    $checkArgs += @('--ui-server', $UiServer)
+}
 $webotsArgs = @('--batch', '--mode=fast', '--minimize', ('"' + $world + '"'))
 $window = 'Hidden'
 if ($Command) {

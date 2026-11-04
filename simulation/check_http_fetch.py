@@ -20,12 +20,15 @@ from PIL import Image
 from simulation.adapter import WebotsAdapter
 
 
-def check(server, adapter):
+def check(server, adapter, ui_root=None):
     root = f"http://127.0.0.1:{server.server_port}"
 
     def call(route, payload=None):
         data = None if payload is None else json.dumps(payload).encode()
-        with urlopen(Request(root + route, data=data), timeout=35) as response:
+        proxy = ui_root and route in ("/state", "/look", "/run/start", "/run/reset")
+        url = (ui_root if proxy else root) + route
+        headers = {"Origin": ui_root, "Content-Type": "application/json"} if proxy and data else {}
+        with urlopen(Request(url, data=data, headers=headers), timeout=35) as response:
             if route == "/look":
                 assert response.headers.get_content_type() == "image/jpeg"
                 return response.read()
@@ -205,7 +208,10 @@ def main():
     parser.add_argument("--command")
     parser.add_argument("--expected-fixture-key", choices=[f"item_{i}" for i in range(1, 7)])
     parser.add_argument("--record-pov", action="store_true")
+    parser.add_argument("--ui-server", type=Path)
     args = parser.parse_args()
+    if args.command and args.ui_server:
+        parser.error("--ui-server is for the offline rehearsal")
     if args.command:
         required = ("OPENAI_API_KEY", "OPENAI_MODEL") if args.provider == "openai" else (
             "ANTHROPIC_API_KEY", "CLAUDE_MODEL"
@@ -229,15 +235,39 @@ def main():
     else:
         raise RuntimeError("Webots bridge did not start")
 
-    with engine.create_server(adapter, port=0) as server:
+    with engine.create_server(adapter, port=8080 if args.ui_server else 0) as server:
         worker = threading.Thread(target=server.serve_forever)
         worker.start()
+        ui_process = None
         try:
             if args.command:
                 run_live(server, adapter, args)
                 return
-            check(server, adapter)
+            if args.ui_server:
+                ui_root = "http://127.0.0.1:18090"
+                ui_process = subprocess.Popen(
+                    ["node", str(args.ui_server.resolve())],
+                    env={**os.environ, "ROVER_UI_PORT": "18090"},
+                )
+                for _ in range(50):
+                    if ui_process.poll() is not None:
+                        raise RuntimeError("Operator UI stopped before becoming ready")
+                    try:
+                        with urlopen(ui_root, timeout=1) as response:
+                            assert b"operator.js" in response.read()
+                        break
+                    except OSError:
+                        time.sleep(0.1)
+                else:
+                    raise RuntimeError("Operator UI did not become ready")
+                check(server, adapter, ui_root)
+                print("PASS: operator Start, camera, status and Reset through the UI proxy")
+            else:
+                check(server, adapter)
         finally:
+            if ui_process is not None:
+                ui_process.terminate()
+                ui_process.wait(timeout=5)
             server.shutdown()
             worker.join()
 
