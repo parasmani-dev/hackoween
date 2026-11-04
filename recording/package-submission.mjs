@@ -8,6 +8,32 @@ import { pngSize } from './png-size.mjs';
 const validator = fileURLToPath(new URL('./validate.mjs', import.meta.url));
 const sha256 = data => createHash('sha256').update(data).digest('hex');
 const scoredOutcomes = new Set(['pass', 'fail_wrong_object', 'fail_not_reached', 'fail_collision']);
+const tools = new Map([
+  ['move', { arg: 'distance', result: ['success', 'collided'] }],
+  ['turn', { arg: 'degrees', result: ['success'] }],
+  ['pickup', { result: ['success'] }],
+  ['drop', { result: ['success', 'in_zone'] }],
+]);
+
+function hasFields(value, fields) {
+  return value && typeof value === 'object' && !Array.isArray(value) &&
+    Object.keys(value).length === fields.length && fields.every(field => Object.hasOwn(value, field));
+}
+
+function validToolCall(step) {
+  if (!hasFields(step, ['step', 'timestamp', 'tool', 'args', 'result', 'frame_path']) ||
+      !Number.isInteger(step.step) || step.step < 1 || typeof step.timestamp !== 'string' ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)$/.test(step.timestamp) ||
+      !Number.isFinite(Date.parse(step.timestamp)) || typeof step.frame_path !== 'string' ||
+      !/^(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.png$/.test(step.frame_path)) {
+    return false;
+  }
+  const action = tools.get(step.tool);
+  if (!action || !hasFields(step.args, action.arg ? [action.arg] : []) ||
+      (action.arg && !Number.isFinite(step.args[action.arg]))) return false;
+  return (hasFields(step.result, ['outcome']) && step.result.outcome === 'uncertain') ||
+    (hasFields(step.result, action.result) && action.result.every(field => typeof step.result[field] === 'boolean'));
+}
 
 async function readToolLog(runDirectory) {
   const root = await realpath(runDirectory);
@@ -16,11 +42,8 @@ async function readToolLog(runDirectory) {
   const frames = new Map();
   for (const [index, line] of log.trimEnd().split(/\r?\n/).entries()) {
     const step = JSON.parse(line);
-    if (!step || !Number.isInteger(step.step) || typeof step.timestamp !== 'string' ||
-        typeof step.tool !== 'string' || !Object.hasOwn(step, 'args') ||
-        !Object.hasOwn(step, 'result') || typeof step.frame_path !== 'string' ||
-        !/^(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.png$/.test(step.frame_path)) {
-      throw new Error('Invalid tool-call entry at line ' + (index + 1) + '.');
+    if (!validToolCall(step)) {
+      throw new Error('Invalid or private tool-call fields at line ' + (index + 1) + '.');
     }
     const key = step.frame_path.toLowerCase();
     if (frames.has(key)) {
@@ -36,6 +59,14 @@ async function readToolLog(runDirectory) {
     const data = await readFile(frame);
     const { width, height } = pngSize(data, step.frame_path, 640, 480);
     if (width !== 640 || height !== 480) throw new Error('Expected a 640×480 decision PNG: ' + step.frame_path);
+    try {
+      execFileSync(process.env.FFMPEG_PATH || 'ffmpeg', [
+        '-nostdin', '-v', 'error', '-xerror', '-abort_on', 'empty_output',
+        '-f', 'image2pipe', '-c:v', 'png', '-i', 'pipe:0', '-frames:v', '1', '-f', 'null', '-',
+      ], { input: data, stdio: ['pipe', 'ignore', 'pipe'] });
+    } catch {
+      throw new Error('Could not decode decision PNG: ' + step.frame_path);
+    }
     frames.set(key, { path: step.frame_path, data });
   }
   return { log, frames: [...frames.values()] };

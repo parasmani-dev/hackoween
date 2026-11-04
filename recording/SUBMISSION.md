@@ -51,7 +51,9 @@ run. Play the full clip and check the exact command during the first two seconds
 including readability and margins for wrapped commands,
 robot POV throughout, the complete ending, and the absence of team names, logos,
 or code. Review the tool-call log for private material. Set `reviewed` to true
-after these checks. Use ffprobe on PATH or set `FFPROBE_PATH` to its executable.
+after these checks. Packaging checks the agent log against the current action
+schema and decodes its referenced PNGs. Use FFmpeg and ffprobe on PATH or set
+`FFMPEG_PATH` and `FFPROBE_PATH` to their executables.
 
 ```powershell
 node recording/package-submission.mjs '<config.json>' '<new local output directory>'

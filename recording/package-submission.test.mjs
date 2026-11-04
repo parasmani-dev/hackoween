@@ -36,7 +36,8 @@ test('submission packages only the complete capture belonging to each attempt', 
         args: {}, result: { success: true }, frame_path: 'frames/0000.png',
       };
       await writeFile(join(agent, 'steps.jsonl'),
-        [step, { ...step, step: 2 }].map(row => JSON.stringify(row)).join('\n') + '\n');
+        [step, { ...step, step: 2, result: { outcome: 'uncertain' } }]
+          .map(row => JSON.stringify(row)).join('\n') + '\n');
 
       const frames = [];
       for (let second = 0; second < 10; second++) {
@@ -145,7 +146,28 @@ test('submission packages only the complete capture belonging to each attempt', 
     const native = await packageRuns('native-in-log', runs);
     assert.equal(native.status, 1, native.stderr);
     assert.match(native.stderr, /640×480 decision PNG/);
+    await writeFile(first.decision, (await readFile(decisionPng)).subarray(0, 33));
+    const truncated = await packageRuns('truncated-image', runs);
+    assert.equal(truncated.status, 1, truncated.stderr);
+    assert.match(truncated.stderr, /Could not decode decision PNG/);
+    await assert.rejects(readdir(truncated.output), { code: 'ENOENT' });
     await copyFile(decisionPng, first.decision);
+
+    const logPath = join(first.agent, 'steps.jsonl');
+    const log = await readFile(logPath, 'utf8');
+    const step = JSON.parse(log.split('\n')[0]);
+    for (const [name, fields] of [
+      ['private-top-level', { authorization: 'private fixture' }],
+      ['private-arg', { args: { fixture_key: 'private fixture' } }],
+      ['private-result', { result: { success: true, verdict: 'private fixture' } }],
+    ]) {
+      await writeFile(logPath, JSON.stringify({ ...step, ...fields }) + '\n');
+      const rejected = await packageRuns(name, runs);
+      assert.equal(rejected.status, 1, rejected.stderr);
+      assert.match(rejected.stderr, /Invalid or private tool-call fields/);
+      await assert.rejects(readdir(rejected.output), { code: 'ENOENT' });
+    }
+    await writeFile(logPath, log);
 
     const manifest = await readFile(first.manifest);
     await appendFile(first.manifest, '\n');
