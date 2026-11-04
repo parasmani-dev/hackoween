@@ -3,33 +3,79 @@ import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, isAbsolute, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pngSize } from './png-size.mjs';
 
 const validator = fileURLToPath(new URL('./validate.mjs', import.meta.url));
 const sha256 = data => createHash('sha256').update(data).digest('hex');
+const scoredOutcomes = new Set(['pass', 'fail_wrong_object', 'fail_not_reached', 'fail_collision']);
+const tools = new Map([
+  ['move', { arg: 'distance', result: ['success', 'collided'] }],
+  ['turn', { arg: 'degrees', result: ['success'] }],
+  ['pickup', { result: ['success'] }],
+  ['drop', { result: ['success', 'in_zone'] }],
+]);
+
+function hasFields(value, fields) {
+  return value && typeof value === 'object' && !Array.isArray(value) &&
+    Object.keys(value).length === fields.length && fields.every(field => Object.hasOwn(value, field));
+}
+
+function validToolCall(step) {
+  if (!hasFields(step, ['step', 'timestamp', 'tool', 'args', 'result', 'frame_path']) ||
+      !Number.isInteger(step.step) || step.step < 1 || typeof step.timestamp !== 'string' ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)$/.test(step.timestamp) ||
+      !Number.isFinite(Date.parse(step.timestamp)) || typeof step.frame_path !== 'string' ||
+      !/^(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.png$/.test(step.frame_path)) {
+    return false;
+  }
+  const notDispatched = hasFields(step.result, ['outcome', 'reason']) &&
+    step.result.outcome === 'not_dispatched';
+  if (step.tool === null) {
+    return hasFields(step.args, []) && notDispatched && step.result.reason === 'provider_error';
+  }
+  const action = tools.get(step.tool);
+  if (!action || !hasFields(step.args, action.arg ? [action.arg] : []) ||
+      (action.arg && !Number.isFinite(step.args[action.arg]))) return false;
+  return (step.tool === 'turn' && notDispatched && step.result.reason === 'navigation_guard') ||
+    (hasFields(step.result, ['outcome']) && step.result.outcome === 'uncertain') ||
+    (hasFields(step.result, action.result) && action.result.every(field => typeof step.result[field] === 'boolean'));
+}
 
 async function readToolLog(runDirectory) {
   const root = await realpath(runDirectory);
   const log = await readFile(join(root, 'steps.jsonl'), 'utf8');
   if (!log.trim()) throw new Error('Empty tool-call log.');
-  const checkedFrames = new Set();
+  const frames = new Map();
   for (const [index, line] of log.trimEnd().split(/\r?\n/).entries()) {
     const step = JSON.parse(line);
-    if (!step || !Number.isInteger(step.step) || typeof step.timestamp !== 'string' ||
-        typeof step.tool !== 'string' || !Object.hasOwn(step, 'args') ||
-        !Object.hasOwn(step, 'result') || typeof step.frame_path !== 'string' ||
-        !step.frame_path.toLowerCase().endsWith('.png') || isAbsolute(step.frame_path)) {
-      throw new Error('Invalid tool-call entry at line ' + (index + 1) + '.');
+    if (!validToolCall(step)) {
+      throw new Error('Invalid or private tool-call fields at line ' + (index + 1) + '.');
     }
-    if (checkedFrames.has(step.frame_path)) continue;
+    const key = step.frame_path.toLowerCase();
+    if (frames.has(key)) {
+      if (frames.get(key).path !== step.frame_path) throw new Error('Decision frame paths differ only by case.');
+      continue;
+    }
     const frame = await realpath(resolve(root, step.frame_path));
     const fromRoot = relative(root, frame);
     if (fromRoot === '..' || fromRoot.startsWith('..' + sep) || isAbsolute(fromRoot) ||
         !(await stat(frame)).isFile()) {
       throw new Error('Decision frame must be a file inside its agent run directory.');
     }
-    checkedFrames.add(step.frame_path);
+    const data = await readFile(frame);
+    const { width, height } = pngSize(data, step.frame_path, 640, 480);
+    if (width !== 640 || height !== 480) throw new Error('Expected a 640×480 decision PNG: ' + step.frame_path);
+    try {
+      execFileSync(process.env.FFMPEG_PATH || 'ffmpeg', [
+        '-nostdin', '-v', 'error', '-xerror', '-abort_on', 'empty_output',
+        '-f', 'image2pipe', '-c:v', 'png', '-i', 'pipe:0', '-frames:v', '1', '-f', 'null', '-',
+      ], { input: data, stdio: ['pipe', 'ignore', 'pipe'] });
+    } catch {
+      throw new Error('Could not decode decision PNG: ' + step.frame_path);
+    }
+    frames.set(key, { path: step.frame_path, data });
   }
-  return log;
+  return { log, frames: [...frames.values()] };
 }
 
 async function packageSubmission([configPath, outputPath, ...extra]) {
@@ -58,10 +104,14 @@ async function packageSubmission([configPath, outputPath, ...extra]) {
     }
     const attempt = await realpath(resolve(base, run.attempt));
     const result = JSON.parse(await readFile(join(attempt, 'operator-result.json'), 'utf8'));
-    if (result.verdict?.outcome !== 'pass' || result.pov_status !== 'complete' ||
+    if (result.verdict?.state !== 'Done' || !scoredOutcomes.has(result.verdict.outcome) ||
+        result.verdict.reason === 'evaluator_unavailable') {
+      throw new Error('Expected a scored terminal launcher verdict.');
+    }
+    if (result.pov_status !== 'complete' ||
         typeof result.pov_capture_id !== 'string' || !result.pov_capture_id.trim() ||
         typeof result.pov_manifest !== 'string' || !isAbsolute(result.pov_manifest)) {
-      throw new Error('Expected a passing launcher attempt with complete POV status, a capture ID, and a manifest.');
+      throw new Error('Expected complete POV status, a capture ID, and a manifest.');
     }
     const capture = await realpath(result.pov_manifest);
     const manifest = await readFile(capture);
@@ -82,20 +132,27 @@ async function packageSubmission([configPath, outputPath, ...extra]) {
       throw new Error('Each entry must use a distinct capture, command, clip and agent run.');
     }
     execFileSync(process.execPath, [validator, capture, clip], { stdio: 'inherit' });
-    const log = await readToolLog(agentRun);
+    const evidence = await readToolLog(agentRun);
     runIds.add(run_id);
     commands.add(command);
     clips.add(clip);
     agentRuns.add(agentRun);
-    prepared.push({ clip, log });
+    prepared.push({ clip, ...evidence });
   }
 
   const destination = resolve(outputPath);
   await mkdir(destination);
-  for (const [index, { clip, log }] of prepared.entries()) {
+  for (const [index, { clip, log, frames }] of prepared.entries()) {
     const name = 'run-' + (index + 1);
+    const evidence = join(destination, name);
+    await mkdir(evidence);
     await copyFile(clip, join(destination, name + '.mp4'));
-    await writeFile(join(destination, name + '-steps.jsonl'), log);
+    await writeFile(join(evidence, 'steps.jsonl'), log);
+    for (const { path, data } of frames) {
+      const target = join(evidence, path);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, data);
+    }
   }
   await writeFile(join(destination, 'submission.json'), JSON.stringify({
     repository, visual_identification, demo_booking,
