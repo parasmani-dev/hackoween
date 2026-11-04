@@ -42,7 +42,8 @@ test('submission packages only the complete capture belonging to each attempt', 
       execFileSync(process.execPath, [script('./export.mjs'), '--capture', manifest, '1', clip]);
       const resultPath = join(attempt, 'operator-result.json');
       const result = {
-        verdict: { outcome: 'pass' }, pov_status: 'complete', pov_capture_id: id, pov_manifest: manifest,
+        verdict: { state: 'Done', outcome: ['pass', 'fail_wrong_object', 'fail_not_reached'][index] },
+        pov_status: 'complete', pov_capture_id: id, pov_manifest: manifest,
       };
       await writeJson(resultPath, result);
       fixtures.push({ manifest, resultPath, result, run: { attempt, clip, reviewed: true } });
@@ -65,6 +66,21 @@ test('submission packages only the complete capture belonging to each attempt', 
     assert.equal((await readdir(valid.output)).length, 7);
 
     const [first, second] = fixtures;
+    await writeJson(first.resultPath, { ...first.result, verdict: { state: 'Done', outcome: 'fail_collision' } });
+    const collision = await packageRuns('collision', runs);
+    assert.equal(collision.status, 0, collision.stderr);
+    for (const [name, verdict] of [
+      ['unscored', { state: 'Done', outcome: null, reason: 'evaluator_unavailable' }],
+      ['unknown', { state: 'Done', outcome: 'other' }],
+      ['nonterminal', { state: 'Blocked', outcome: 'fail_collision' }],
+      ['unavailable', { state: 'Done', outcome: 'pass', reason: 'evaluator_unavailable' }],
+    ]) {
+      await writeJson(first.resultPath, { ...first.result, verdict });
+      const rejected = await packageRuns(name, runs);
+      assert.equal(rejected.status, 1, rejected.stderr);
+      assert.match(rejected.stderr, /scored terminal/);
+      await assert.rejects(readdir(rejected.output), { code: 'ENOENT' });
+    }
     await writeJson(first.resultPath, { ...first.result, pov_manifest: second.manifest });
     await writeJson(second.resultPath, { ...second.result, pov_manifest: first.manifest });
     const swapped = await packageRuns('swapped', [

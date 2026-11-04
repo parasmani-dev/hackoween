@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const validator = fileURLToPath(new URL('./validate.mjs', import.meta.url));
 const sha256 = data => createHash('sha256').update(data).digest('hex');
+const scoredOutcomes = new Set(['pass', 'fail_wrong_object', 'fail_not_reached', 'fail_collision']);
 
 async function readToolLog(runDirectory) {
   const root = await realpath(runDirectory);
@@ -58,10 +59,14 @@ async function packageSubmission([configPath, outputPath, ...extra]) {
     }
     const attempt = await realpath(resolve(base, run.attempt));
     const result = JSON.parse(await readFile(join(attempt, 'operator-result.json'), 'utf8'));
-    if (result.verdict?.outcome !== 'pass' || result.pov_status !== 'complete' ||
+    if (result.verdict?.state !== 'Done' || !scoredOutcomes.has(result.verdict.outcome) ||
+        result.verdict.reason === 'evaluator_unavailable') {
+      throw new Error('Expected a scored terminal launcher verdict.');
+    }
+    if (result.pov_status !== 'complete' ||
         typeof result.pov_capture_id !== 'string' || !result.pov_capture_id.trim() ||
         typeof result.pov_manifest !== 'string' || !isAbsolute(result.pov_manifest)) {
-      throw new Error('Expected a passing launcher attempt with complete POV status, a capture ID, and a manifest.');
+      throw new Error('Expected complete POV status, a capture ID, and a manifest.');
     }
     const capture = await realpath(result.pov_manifest);
     const manifest = await readFile(capture);
