@@ -120,10 +120,12 @@ def serve(scene, port):
     handlers = {name: getattr(scene, name) for name in
                 ("state", "look", "move", "turn", "pickup", "drop", "reset", "delivered_fixture_key")}
     with socket.create_server(("127.0.0.1", port)) as listener:
+        logging.info("Webots bridge listening on loopback port %s", port)
         while True:
             connection, _ = listener.accept()
             with connection:
                 connection.settimeout(3)
+                method = None
                 try:
                     with connection.makefile("rb") as stream:
                         request = json.loads(stream.readline(4096))
@@ -136,7 +138,7 @@ def serve(scene, port):
                         raise ValueError("Unexpected arguments")
                     response = {"ok": True, "result": handlers[method](*args)}
                 except Exception:
-                    logging.exception("Webots bridge request failed")
+                    logging.exception("Webots bridge request %r failed at rover state %s", method, scene.state())
                     response = {"ok": False}
                 try:
                     connection.sendall(json.dumps(response, allow_nan=False).encode() + b"\n")
@@ -145,4 +147,9 @@ def serve(scene, port):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        filename=Path(__file__).resolve().parents[2] / "bridge.log",
+        format="%(asctime)s %(levelname)s %(message)s",
+        level=logging.INFO,
+    )
     serve(Scene(Supervisor()), int(os.environ.get("ROVER_WEBOTS_PORT", "8765")))

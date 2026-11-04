@@ -31,5 +31,6 @@ try {
  $testCode=$LASTEXITCODE
 } finally {
  if (-not $p.HasExited) { Stop-Process -InputObject $p }
+    Write-Host "Webots bridge log: $(Join-Path $output 'bridge.log')"
 }
 exit $testCode

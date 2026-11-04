@@ -98,6 +98,15 @@ def check(server, adapter):
     blocked = state()
     assert blocked["state"] == "Blocked" and -2.73 < blocked["x"] < -2.5, blocked
     assert blocked["retry_count"] == 0
+    assert call("/turn", {"degrees": 90}) == {"success": True}
+    assert state()["state"] == "Blocked" and state()["retry_count"] == 0
+    assert call("/move", {"distance": 0.5}) == {"success": True, "collided": False}
+    assert state()["state"] == "Go to object" and state()["retry_count"] == 0
+    print("PASS: post-contact turn and successful recovery through HTTP")
+
+    assert call("/run/reset", {}) == {"state": "Idle"}
+    assert call("/run/start", command) == {"state": "Locate"}
+    assert call("/move", {"distance": -2}) == {"success": False, "collided": True}
     for retry in range(1, 4):
         assert call("/move", {"distance": -2}) == {"success": False, "collided": True}
         current = state()
