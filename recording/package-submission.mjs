@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, isAbsolute, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pngSize } from './png-size.mjs';
 
 const validator = fileURLToPath(new URL('./validate.mjs', import.meta.url));
 const sha256 = data => createHash('sha256').update(data).digest('hex');
@@ -12,25 +13,32 @@ async function readToolLog(runDirectory) {
   const root = await realpath(runDirectory);
   const log = await readFile(join(root, 'steps.jsonl'), 'utf8');
   if (!log.trim()) throw new Error('Empty tool-call log.');
-  const checkedFrames = new Set();
+  const frames = new Map();
   for (const [index, line] of log.trimEnd().split(/\r?\n/).entries()) {
     const step = JSON.parse(line);
     if (!step || !Number.isInteger(step.step) || typeof step.timestamp !== 'string' ||
         typeof step.tool !== 'string' || !Object.hasOwn(step, 'args') ||
         !Object.hasOwn(step, 'result') || typeof step.frame_path !== 'string' ||
-        !step.frame_path.toLowerCase().endsWith('.png') || isAbsolute(step.frame_path)) {
+        !/^(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.png$/.test(step.frame_path)) {
       throw new Error('Invalid tool-call entry at line ' + (index + 1) + '.');
     }
-    if (checkedFrames.has(step.frame_path)) continue;
+    const key = step.frame_path.toLowerCase();
+    if (frames.has(key)) {
+      if (frames.get(key).path !== step.frame_path) throw new Error('Decision frame paths differ only by case.');
+      continue;
+    }
     const frame = await realpath(resolve(root, step.frame_path));
     const fromRoot = relative(root, frame);
     if (fromRoot === '..' || fromRoot.startsWith('..' + sep) || isAbsolute(fromRoot) ||
         !(await stat(frame)).isFile()) {
       throw new Error('Decision frame must be a file inside its agent run directory.');
     }
-    checkedFrames.add(step.frame_path);
+    const data = await readFile(frame);
+    const { width, height } = pngSize(data, step.frame_path, 640, 480);
+    if (width !== 640 || height !== 480) throw new Error('Expected a 640×480 decision PNG: ' + step.frame_path);
+    frames.set(key, { path: step.frame_path, data });
   }
-  return log;
+  return { log, frames: [...frames.values()] };
 }
 
 async function packageSubmission([configPath, outputPath, ...extra]) {
@@ -87,20 +95,27 @@ async function packageSubmission([configPath, outputPath, ...extra]) {
       throw new Error('Each entry must use a distinct capture, command, clip and agent run.');
     }
     execFileSync(process.execPath, [validator, capture, clip], { stdio: 'inherit' });
-    const log = await readToolLog(agentRun);
+    const evidence = await readToolLog(agentRun);
     runIds.add(run_id);
     commands.add(command);
     clips.add(clip);
     agentRuns.add(agentRun);
-    prepared.push({ clip, log });
+    prepared.push({ clip, ...evidence });
   }
 
   const destination = resolve(outputPath);
   await mkdir(destination);
-  for (const [index, { clip, log }] of prepared.entries()) {
+  for (const [index, { clip, log, frames }] of prepared.entries()) {
     const name = 'run-' + (index + 1);
+    const evidence = join(destination, name);
+    await mkdir(evidence);
     await copyFile(clip, join(destination, name + '.mp4'));
-    await writeFile(join(destination, name + '-steps.jsonl'), log);
+    await writeFile(join(evidence, 'steps.jsonl'), log);
+    for (const { path, data } of frames) {
+      const target = join(evidence, path);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, data);
+    }
   }
   await writeFile(join(destination, 'submission.json'), JSON.stringify({
     repository, visual_identification, demo_booking,

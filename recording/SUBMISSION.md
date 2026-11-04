@@ -45,7 +45,9 @@ after these checks. Use ffprobe on PATH or set `FFPROBE_PATH` to its executable.
 node recording/package-submission.mjs '<config.json>' '<new local output directory>'
 ```
 
-The output contains three numbered MP4s, their three tool-call logs and
-`submission.json`. These names are for local handoff. Apply any organizer naming
-rules before upload. Keep receipts, operator results, raw captures, decision PNGs, request audits and
-credentials outside the package. Paras coordinates the final upload.
+The output contains three numbered MP4s, `submission.json`, and one directory
+per run with `steps.jsonl` and its referenced 640×480 decision PNGs. Keep each
+log with its directory so `frame_path` stays resolvable. These names are for
+local handoff. Apply any organizer naming rules before upload. Keep receipts,
+operator results, raw native captures, request audits and credentials outside
+the package. Paras coordinates the final upload.
