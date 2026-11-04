@@ -26,7 +26,7 @@ _RESULT_FIELDS = {
 
 
 class EngineClient:
-    def __init__(self, base_url="http://localhost:8080", *, timeout=15):
+    def __init__(self, base_url="http://localhost:8080", *, timeout=35):
         if not finite_number(timeout) or timeout <= 0:
             raise ValueError("Engine timeout must be positive and finite.")
         self.base_url = base_url.rstrip("/")

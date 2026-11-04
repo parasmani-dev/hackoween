@@ -47,7 +47,7 @@ class EngineClientTests(unittest.TestCase):
             with self.subTest(name=name):
                 request.return_value = json_response({**result, "object_id": "private"})
                 self.assertEqual(client.execute(name, args), result)
-                request.assert_called_with(f"http://localhost:8080/{name}", 15, payload=args)
+                request.assert_called_with(f"http://localhost:8080/{name}", 35, payload=args)
 
     @patch("agent.engine.request")
     def test_rejects_invalid_actions_before_dispatch(self, request):

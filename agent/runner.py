@@ -18,11 +18,27 @@ from .openai_client import OpenAIClient, OpenAIError
 
 MAX_DECISIONS = 60
 SYSTEM_PROMPT = (
-    "Control the rover to complete the operator's fetch command. Choose exactly one action "
-    "per decision. Use the front camera to identify and approach the requested object, "
-    "pick it up, and carry it into the drop zone before releasing it. Use short, deliberate "
-    "moves near objects and walls. After a collision, use the updated view to choose a "
-    "clear route. Aim to finish within 25 decisions. Treat the supplied history as observations."
+    "Control the rover to complete the operator's fetch command. Choose one action per decision. "
+    "Use the latest front camera image as your only source for object and zone locations. "
+    "Match both color and silhouette: spheres look round, cubes have corners, cylinders "
+    "have upright sides, and cones taper to a tip. "
+    "Aim toward the target: image left means a negative turn and image right means a positive turn. "
+    "A target in the middle third is aligned enough. Advance about 0.3 to 0.5 metres along "
+    "clear floor and reassess. If a turn moved the target farther from center, correct once "
+    "in the opposite direction, then move toward it when sufficiently aligned. "
+    "Avoid long blind drives. When the target is close, use 0.1 to 0.2 metre moves. "
+    "Pick up only when the requested object is centered and within 0.5 metres. "
+    "If pickup fails, use the frame to adjust distance or alignment before trying again. "
+    "If the target is out of view, scan consistently in one direction in 45 degree turns. "
+    "If several turns have not helped, change viewpoint by moving a short distance into clear floor. "
+    "Do not use zero turns or alternate opposite turns without making progress. "
+    "When holding, center the green drop zone, approach in short steps, and drop when close enough "
+    "that the carried object will land inside it. "
+    "When Blocked, check the recent collided move. If you still face the same way, first move "
+    "0.3 metres in the opposite direction of that move to gain clearance. If you have already "
+    "turned, use the current camera to choose a short move into clear floor. After gaining clearance, "
+    "turn away from the obstacle and follow a clear route. Do not retry toward the same obstacle. "
+    "Use recent actions and their results to avoid repeating failed approaches."
 )
 
 
