@@ -103,7 +103,12 @@ class RunnerTests(unittest.TestCase):
         result = self.run_rover(max_decisions=6)
         self.assertEqual(result.decisions, 6)
         self.assertEqual(result.usage["input_tokens"], 6)
-        self.assertEqual([row["step"] for row in self.records(result)], [1, 2, 3, 6])
+        rows = self.records(result)
+        self.assertEqual([row["step"] for row in rows], list(range(1, 7)))
+        for row in rows[3:5]:
+            self.assertEqual(row["result"], {"outcome": "not_dispatched", "reason": "navigation_guard"})
+            self.assertEqual(row["frame_path"], rows[5]["frame_path"])
+        self.assertEqual(self.engine.execute.call_count, 4)
         self.assertEqual(self.engine.look.call_count, 5)
         calls = self.claude.decide.call_args_list
         self.assertIn("rejected before dispatch", calls[4].kwargs["system"])
@@ -152,7 +157,10 @@ class RunnerTests(unittest.TestCase):
 
     def test_bad_camera_and_failed_claude_do_not_dispatch(self):
         self.claude.decide.side_effect = ClaudeError("private exception detail")
-        self.assertEqual(self.run_rover().status, "claude_error")
+        result = self.run_rover()
+        self.assertEqual(result.status, "claude_error")
+        self.assertEqual(self.records(result)[0]["result"],
+                         {"outcome": "not_dispatched", "reason": "provider_error"})
         self.engine.look.return_value = b"bad frame"
         self.assertEqual(self.run_rover().status, "engine_error")
         self.engine.execute.assert_not_called()
@@ -165,10 +173,12 @@ class RunnerTests(unittest.TestCase):
             "content": [{"type": "tool_use", "name": "pickup", "input": {}}],
             "usage": {"input_tokens": 2, "output_tokens": 1},
         }).encode())
-        result = run_command("Fetch the red object", engine=self.engine,
+        result = run_command("Fetch the red object and drop it in the drop zone", engine=self.engine,
                              output_root=self.temp.name, max_decisions=1, audit_requests=True)
         audit = (result.run_dir / "claude_requests.jsonl").read_text(encoding="utf-8")
-        self.assertEqual(json.loads(audit), request.call_args.kwargs["payload"])
+        payload = json.loads(audit)
+        self.assertEqual(payload, request.call_args.kwargs["payload"])
+        self.assertNotIn("green", payload["system"].lower())
         self.assertNotIn("mock-key", audit)
         self.assertNotIn("x-api-key", audit)
         self.assertEqual(result.status, "decision_limit")
@@ -185,12 +195,13 @@ class RunnerTests(unittest.TestCase):
         request.return_value = ("application/json", json.dumps(response).encode())
         options = dict(engine=self.engine, output_root=self.temp.name, provider="openai",
                        max_decisions=1, audit_requests=True)
-        result = run_command("Fetch the red object", **options)
+        result = run_command("Fetch the red object and drop it in the drop zone", **options)
         self.engine.execute.assert_called_once_with("move", {"distance": -0.5})
         self.assertEqual(result.usage, {"input_tokens": 15, "cache_read_input_tokens": 5, "output_tokens": 8})
         audit = (result.run_dir / "openai_requests.jsonl").read_text(encoding="utf-8")
         payload = json.loads(audit)
         self.assertEqual(payload, request.call_args.kwargs["payload"])
+        self.assertNotIn("green", payload["messages"][0]["content"].lower())
         self.assertNotIn("mock-openai-key", audit)
         self.assertFalse(payload["parallel_tool_calls"])
         self.assertEqual(payload["messages"][1]["content"][1]["type"], "image_url")

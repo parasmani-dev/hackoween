@@ -34,7 +34,8 @@ SYSTEM_PROMPT = (
     "If the target is out of view, scan consistently in one direction in 45 degree turns. "
     "If several turns have not helped, change viewpoint by moving a short distance into clear floor. "
     "Do not use zero turns or alternate opposite turns without making progress. "
-    "When holding, center the green drop zone, approach in short steps, and drop when close enough "
+    "When holding, use the command and camera to locate the drop zone, center it, "
+    "approach in short steps, and drop when close enough "
     "that the carried object will land inside it. "
     "When Blocked, check the recent collided move. If you still face the same way, first move "
     "0.3 metres in the opposite direction of that move to gain clearance. If you have already "
@@ -139,6 +140,14 @@ def run_command(
             if terminal:
                 return RunResult(terminal, decisions, usage, run_dir)
             frame_name, frame = _capture(engine, run_dir, 0)
+
+            def log_decision(step, timestamp, tool, args, result, frame_name):
+                journal.write(json.dumps({
+                    "step": step, "timestamp": timestamp, "tool": tool, "args": args,
+                    "result": result, "frame_path": frame_name,
+                }) + "\n")
+                journal.flush()
+
             for step in range(1, max_decisions + 1):
                 context = json.dumps({
                     "command": command,
@@ -154,19 +163,26 @@ def run_command(
                         " The previous turn proposal was rejected before dispatch. "
                         "The rover has not moved. Choose a different action using the same image."
                     )
-                decision = claude.decide(
-                    [{"role": "user", "content": [{"type": "text", "text": context}, frame]}],
-                    system=system,
-                )
+                try:
+                    decision = claude.decide(
+                        [{"role": "user", "content": [{"type": "text", "text": context}, frame]}],
+                        system=system,
+                    )
+                except (ClaudeError, OpenAIError):
+                    log_decision(step, datetime.now(timezone.utc).isoformat(), None, {},
+                                 {"outcome": "not_dispatched", "reason": "provider_error"}, frame_name)
+                    raise
                 for key, count in decision.usage.items():
                     usage[key] = usage.get(key, 0) + count
 
+                timestamp = datetime.now(timezone.utc).isoformat()
                 if decision.name == "turn" and (
                     turns_without_progress >= MAX_TURNS_WITHOUT_PROGRESS
                     or (alternating_turns
                         and decision.args["degrees"] * history[-1]["args"]["degrees"] < 0)
                 ):
-                    # Keep the same observation and count the rejected proposal against the cap.
+                    log_decision(step, timestamp, decision.name, decision.args,
+                                 {"outcome": "not_dispatched", "reason": "navigation_guard"}, frame_name)
                     rejected_turns += 1
                     if rejected_turns >= MAX_REJECTED_TURNS:
                         status = "navigation_stalled"
@@ -174,17 +190,13 @@ def run_command(
                     continue
 
                 rejected_turns = 0
-                timestamp = datetime.now(timezone.utc).isoformat()
                 try:
                     result = engine.execute(decision.name, decision.args)
                 except ActionOutcomeUncertain:
                     result = {"outcome": "uncertain"}
                     status = "action_uncertain"
                 action = {"tool": decision.name, "args": decision.args, "result": result}
-                journal.write(json.dumps({
-                    "step": step, "timestamp": timestamp, **action, "frame_path": frame_name,
-                }) + "\n")
-                journal.flush()
+                log_decision(step, timestamp, decision.name, decision.args, result, frame_name)
                 if status == "action_uncertain":
                     break
                 history.append(action)
