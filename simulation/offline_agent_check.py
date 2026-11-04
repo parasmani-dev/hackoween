@@ -52,5 +52,7 @@ def check_agent(server, adapter):
     with patch.object(launcher.subprocess, "run", side_effect=scripted_child), \
          patch("agent.claude.request", side_effect=AssertionError("Model calls forbidden")), \
          patch("agent.openai_client.request", side_effect=AssertionError("Model calls forbidden")):
-        launcher.run_live(server, adapter, args)
+        record = launcher.run_live(server, adapter, args)
+    if (record.get("verdict") or {}).get("outcome") != "pass":
+        raise RuntimeError("Scripted fetch did not receive a private pass verdict")
     print("PASS: scripted decisions through agent, HTTP and engine-owned capture; zero model calls")

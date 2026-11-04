@@ -123,6 +123,7 @@ local safeguard cannot enforce attempts made on other computers or another ledge
 Do not use real official slots in rehearsals. No model call is authorized merely
 by these instructions.
 
+For the combined offline regression command and the remaining acceptance gates, see [offline readiness](../docs/OFFLINE_READINESS.md).
 ## Smooth operator preview
 
 Set `ROVER_PREVIEW_FILE` to the same absolute JPEG path in the Webots and UI

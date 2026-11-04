@@ -63,6 +63,7 @@ def measure_timing(server, adapter):
     assert frozen["simulation_seconds"] == 0 and frozen["frames"] == 1
     movement = measure("move_0.5m", lambda: call("/move", {"distance": 0.5}))
     assert movement["result"] == {"success": True, "collided": False}
+    assert abs(movement["simulation_seconds"] - 0.5) <= 0.15
     assert abs(movement["displacement_metres"] - 0.5) <= 0.015
     turning = measure("turn_90deg", lambda: call("/turn", {"degrees": 90}))
     assert turning["result"] == {"success": True}
@@ -92,6 +93,7 @@ def measure_timing(server, adapter):
         measured = measure(f"move_{distance}m", lambda: call("/move", {"distance": distance}))
         assert measured["result"] == {"success": True, "collided": False}
         assert abs(measured["displacement_metres"] - abs(distance)) <= 0.015, measured
+        assert abs(measured["simulation_seconds"] - abs(distance)) <= 0.15, measured
         call("/run/reset", {})
     for degrees in (-90, 45, 180):
         call("/run/start", command)
