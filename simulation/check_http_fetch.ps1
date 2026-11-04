@@ -6,7 +6,8 @@ param(
     [string]$AgentRoot,
     [ValidateSet("claude", "openai")]
     [string]$Provider = "claude",
-    [string]$Command
+    [string]$Command,
+    [string]$ExpectedFixtureKey
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,6 +23,9 @@ $webotsArgs = @('--batch', '--mode=fast', '--minimize', ('"' + $world + '"'))
 $window = 'Hidden'
 if ($Command) {
     $checkArgs += @('--agent-root', "$AgentRoot", '--provider', $Provider, '--command', $Command)
+    if ($ExpectedFixtureKey) {
+        $checkArgs += @('--expected-fixture-key', $ExpectedFixtureKey)
+    }
     $webotsArgs = @('--batch', '--mode=realtime', ('"' + $world + '"'))
     $window = 'Normal'
 }

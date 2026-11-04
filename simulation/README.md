@@ -42,7 +42,7 @@ From the repository root, with Pillow installed, pass the path to Vernit's engin
 .\simulation\check_http_fetch.ps1 -EngineServer '..\engine-checkout\engine\server.py'
 ```
 
-The bridge binds only to loopback. The launcher defaults to port 18765 for the check. The production adapter and bridge default to 8765. Depth is optional and currently unavailable. Use engine revision 96c0d5d or a compatible later revision with operator lifecycle routes. Private target correctness evaluation is tracked separately.
+The bridge binds only to loopback. The launcher defaults to port 18765 for the check. The production adapter and bridge default to 8765. Depth is optional and currently unavailable. Use engine revision 7193439 (PR #7) or a compatible later revision with operator finish and private verdicts.
 
 ## Live model run
 
@@ -52,4 +52,4 @@ Pass Vernit's server and Archit's checkout to the same launcher. Set the selecte
 .\simulation\check_http_fetch.ps1 -EngineServer '<engine-checkout>\engine\server.py' -AgentRoot '<agent-checkout>' -Provider openai -Command 'Fetch the red sphere and drop it in the green zone'
 ```
 
-The launcher starts the operator run and agent, then keeps request audits, frame logs, and the final camera image in a unique attempt directory under runs/live. The agent stop reason indicates engine termination. Record the delivery verdict separately.
+The launcher starts the operator run and agent, then keeps request audits, frame logs, and the final camera image in a unique attempt directory under runs/live. Pass -ExpectedFixtureKey for a known test fixture. The launcher calls the operator finish endpoint after the agent exits and saves the verdict separately in operator-result.json. Keep that file and request audits local.

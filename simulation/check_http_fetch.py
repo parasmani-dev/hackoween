@@ -48,7 +48,7 @@ def check(server, adapter):
         distance = math.hypot(x - pose["x"], y - pose["y"])
         assert call("/move", {"distance": distance}) == {"success": True, "collided": False}
 
-    command = {"command": "Fetch the red sphere and drop it in the green zone"}
+    command = {"command": "Fetch the red sphere and drop it in the green zone", "expected_fixture_key": "item_1"}
     assert call("/run/start", command) == {"state": "Locate"}
     initial = state()
     frame = call("/look")
@@ -82,12 +82,14 @@ def check(server, adapter):
         assert adapter.delivered_fixture_key() == "item_1"
 
     fetch()
-    print("PASS: full motor-driven fetch through HTTP and private delivery key")
+    assert call("/run/finish", {"reason": "abandoned"}) == {"state": "Done", "outcome": "pass"}
+    print("PASS: full HTTP fetch and private pass verdict")
     assert call("/run/reset", {}) == {"state": "Idle"}
     assert adapter.delivered_fixture_key() is None
 
-    assert call("/run/start", command) == {"state": "Locate"}
+    assert call("/run/start", {**command, "expected_fixture_key": "item_2"}) == {"state": "Locate"}
     fetch()
+    assert call("/run/finish", {"reason": "abandoned"}) == {"state": "Done", "outcome": "fail_wrong_object"}
     # Engine actions are gated after Done. Exercise a subsequent attempt directly.
     assert adapter.drop() == {"success": False, "in_zone": False}
     assert adapter.delivered_fixture_key() is None
@@ -112,11 +114,68 @@ def check(server, adapter):
         current = state()
         assert current["retry_count"] == retry
         assert current["state"] == ("Done" if retry == 3 else "Blocked")
-    print("PASS: wall contact, automatic backoff and three HTTP retries")
+    assert call("/run/finish", {"reason": "abandoned"}) == {"state": "Done", "outcome": "fail_collision"}
+    print("PASS: wall contact, automatic backoff and preserved collision verdict")
     assert call("/run/reset", {}) == {"state": "Idle"}
     reset = state()
     assert abs(reset["x"] + 2) < 0.02 and not reset["holding"] and reset["retry_count"] == 0
     print("PASS: operator reset through HTTP")
+    assert call("/run/start", command) == {"state": "Locate"}
+    assert call("/run/finish", {"reason": "decision_limit"}) == {"state": "Done", "outcome": "fail_not_reached"}
+    print("PASS: decision-budget finish through HTTP")
+
+
+def run_live(server, adapter, args):
+    root = f"http://127.0.0.1:{server.server_port}"
+    output_root = Path("runs/live").resolve()
+    output_root.mkdir(parents=True, exist_ok=True)
+    evidence_dir = Path(mkdtemp(prefix="attempt-", dir=output_root))
+
+    def operator_call(route, payload):
+        request = Request(root + route, data=json.dumps(payload).encode())
+        with urlopen(request, timeout=35) as response:
+            return json.load(response)
+
+    start = {"command": args.command}
+    if args.expected_fixture_key:
+        start["expected_fixture_key"] = args.expected_fixture_key
+    if operator_call("/run/start", start)["state"] != "Locate":
+        raise RuntimeError("Engine did not start the operator run")
+
+    status, exit_code = "abandoned", 130
+    try:
+        run = subprocess.run([
+            sys.executable, "-m", "agent", args.command,
+            "--provider", args.provider, "--engine-url", root,
+            "--audit-requests", "--output-root", str(evidence_dir),
+        ], cwd=args.agent_root, stdout=subprocess.PIPE, text=True, encoding="utf-8")
+        exit_code = run.returncode
+        print(run.stdout, end="")
+        try:
+            status = json.loads(run.stdout).get("status", "unknown")
+        except (ValueError, AttributeError):
+            status = "unknown"
+    except KeyboardInterrupt:
+        print("Operator interrupted the run.")
+    finally:
+        reason = "decision_limit" if status == "decision_limit" else "abandoned"
+        record = {"agent_status": status, "finish_reason": reason, "verdict": None}
+        if args.expected_fixture_key:
+            record["expected_fixture_key"] = args.expected_fixture_key
+        try:
+            record["verdict"] = operator_call("/run/finish", {"reason": reason})
+        except HTTPError as error:
+            with error:
+                record["finish_http_status"] = error.code
+            print(f"Operator finish returned HTTP {error.code}. No rover action was replayed.")
+            exit_code = exit_code or 1
+        finally:
+            evidence = evidence_dir / "operator-result.json"
+            evidence.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+            print(f"Operator result: {evidence}")
+    (evidence_dir / "final-camera.jpg").write_bytes(adapter.look())
+    if exit_code:
+        raise SystemExit(exit_code)
 
 
 def main():
@@ -126,6 +185,7 @@ def main():
     parser.add_argument("--agent-root", type=Path)
     parser.add_argument("--provider", choices=("claude", "openai"), default="claude")
     parser.add_argument("--command")
+    parser.add_argument("--expected-fixture-key", choices=[f"item_{i}" for i in range(1, 7)])
     args = parser.parse_args()
     if args.command:
         required = ("OPENAI_API_KEY", "OPENAI_MODEL") if args.provider == "openai" else (
@@ -155,24 +215,7 @@ def main():
         worker.start()
         try:
             if args.command:
-                root = f"http://127.0.0.1:{server.server_port}"
-                request = Request(root + "/run/start", data=json.dumps({"command": args.command}).encode())
-                with urlopen(request, timeout=35) as response:
-                    assert json.load(response)["state"] == "Locate"
-                output_root = Path("runs/live").resolve()
-                output_root.mkdir(parents=True, exist_ok=True)
-                evidence_dir = Path(mkdtemp(prefix="attempt-", dir=output_root))
-                run = subprocess.run([
-                    sys.executable, "-m", "agent", args.command,
-                    "--provider", args.provider, "--engine-url", root,
-                    "--audit-requests", "--output-root", str(evidence_dir),
-                ], cwd=args.agent_root)
-                evidence = evidence_dir / "final-camera.jpg"
-                evidence.write_bytes(adapter.look())
-                print(f"Final rover camera: {evidence.resolve()}")
-                print("Record the private delivery verdict separately from the agent stop reason.")
-                if run.returncode:
-                    raise SystemExit(run.returncode)
+                run_live(server, adapter, args)
                 return
             check(server, adapter)
         finally:
