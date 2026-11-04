@@ -2,7 +2,7 @@
 
 Open `simulation/worlds/fetch_room.wbt` in Webots R2025a or later and press Play. Inspect the rover camera overlay and confirm the four walls, six objects and green drop zone. The preview controller only enables the camera and advances the scene for inspection. The command-driven controller will replace it in Phase 2.
 
-The world uses ENU coordinates with Z up. The rover begins facing +X. The four wheels are visual geometry in this preview. Static checks cover scene structure and camera configuration. Rendering, collision behavior and fetch actions require Webots runtime verification.
+The world uses ENU coordinates with Z up. The rover begins facing +X and has four powered wheel joints. The preview controller leaves the rover parked.
 
 On Windows, run the camera smoke check from the repository root with the path to your Webots executable.
 
@@ -23,3 +23,13 @@ From the repo root, launch the visible Webots rehearsal in PowerShell.
 Use `-WebotsExe` to point at another Webots installation. Use `-Fast` for a batch check. The launcher prints turn, drive, pickup, and drop events followed by PASS or FAIL. Each run uses a temporary world copy and keeps its logs under `runs/`.
 
 The rehearsal uses a fixed target and route and moves the rover through Webots Supervisor poses. It checks pickup reach and angle and verifies the sphere's final location after release. Motor-driven movement, collision recovery, the engine bridge, and Claude perception are separate from this rehearsal.
+
+## Physical motor and wall recovery check
+
+```powershell
+.\simulation\run_fetch_demo.ps1 -MotorCheck
+```
+
+The rover reverses into the west wall, stops, backs away by 0.1 m, turns clockwise, and drives clear. PowerShell reports the measured backoff, turn, and recovery travel. Add `-Fast` to run in batch mode.
+
+`RoverDrive` uses Webots wheel velocity commands and measures progress from the rover's own pose. Drive actions stop on chassis contact, two seconds without meaningful progress, or a bounded timeout. This standalone check exercises one recovery sequence. Retry accounting and integration with the engine belong to the bridge work.
