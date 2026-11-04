@@ -2,7 +2,11 @@ param(
     [Parameter(Mandatory)]
     [string]$EngineServer,
     [string]$WebotsExe = './runs/webots/msys64/mingw64/bin/webots.exe',
+    [ValidateRange(1, 65535)]
     [int]$BridgePort = 18765,
+    [ValidateRange(1, 65535)]
+    [int]$EnginePort = 8080,
+    [switch]$MeasureTiming,
     [string]$AgentRoot,
     [ValidateSet("claude", "openai")]
     [string]$Provider = "claude",
@@ -23,18 +27,10 @@ if ($PSBoundParameters.ContainsKey('MaxDecisions')) {
     }
     $MaxDecisions = [int]$MaxDecisions
 }
-$output = Join-Path $PWD ('runs/bridge-check-' + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory $output | Out-Null
-Copy-Item simulation/worlds,simulation/controllers -Destination $output -Recurse
-$world=Join-Path $output 'worlds/fetch_room.wbt'
-(Get-Content $world -Raw).Replace('controller "scene_preview"','controller "bridge"') | Set-Content $world -Encoding ascii
-$env:ROVER_WEBOTS_PORT = [string]$BridgePort
-$exe=(Resolve-Path -LiteralPath $WebotsExe).Path
-$checkArgs = @("$EngineServer", '--bridge-port', "$BridgePort")
-if ($UiServer) {
-    $checkArgs += @('--ui-server', $UiServer)
-}
-$webotsArgs = @('--batch', '--mode=fast', '--minimize', ('"' + $world + '"'))
+$checkArgs = @("$EngineServer", '--bridge-port', "$BridgePort", '--engine-port', "$EnginePort")
+if ($UiServer) { $checkArgs += @('--ui-server', $UiServer) }
+if ($MeasureTiming) { $checkArgs += '--measure-timing' }
+$webotsArgs = @('--batch', '--mode=fast', '--minimize')
 $window = 'Hidden'
 if ($Command) {
     $checkArgs += @('--agent-root', "$AgentRoot", '--provider', $Provider, '--command', $Command, '--max-decisions', [string]$MaxDecisions)
@@ -44,9 +40,21 @@ if ($Command) {
     if ($RecordPov) {
         $checkArgs += '--record-pov'
     }
-    $webotsArgs = @('--batch', '--mode=realtime', ('"' + $world + '"'))
+    $webotsArgs = @('--batch', '--mode=realtime')
     $window = 'Normal'
 }
+# Validate before creating a world or starting Webots/the agent.
+python -m simulation.check_http_fetch @checkArgs --preflight-only
+if ($LASTEXITCODE -ne 0) { throw 'Launcher preflight failed. No Webots or model process started.' }
+$exe = (Resolve-Path -LiteralPath $WebotsExe).Path
+$output = Join-Path $PWD ('runs/bridge-check-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory $output | Out-Null
+Copy-Item simulation/worlds,simulation/controllers -Destination $output -Recurse
+$world = Join-Path $output 'worlds/fetch_room.wbt'
+(Get-Content $world -Raw).Replace('controller "scene_preview"','controller "bridge"') | Set-Content $world -Encoding ascii
+$env:ROVER_WEBOTS_PORT = [string]$BridgePort
+# Append the generated world only after preflight has succeeded.
+$webotsArgs += ('"' + $world + '"')
 $p=Start-Process $exe -ArgumentList $webotsArgs -WindowStyle $window -PassThru
 try {
  python -m simulation.check_http_fetch @checkArgs

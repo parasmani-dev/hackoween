@@ -254,10 +254,13 @@ def run_live(server, adapter, args):
         raise SystemExit(exit_code)
 
 
-def main():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("engine_server", type=Path)
-    parser.add_argument("--bridge-port", type=int, default=8765)
+    parser.add_argument("--bridge-port", type=int, choices=range(1, 65536), metavar="1..65535", default=8765)
+    parser.add_argument("--engine-port", type=int, choices=range(1, 65536), metavar="1..65535", default=8080)
+    parser.add_argument("--preflight-only", action="store_true")
+    parser.add_argument("--measure-timing", action="store_true")
     parser.add_argument("--agent-root", type=Path)
     parser.add_argument("--provider", choices=("claude", "openai"), default="claude")
     parser.add_argument("--command")
@@ -265,7 +268,17 @@ def main():
     parser.add_argument("--expected-fixture-key", choices=[f"item_{i}" for i in range(1, 7)])
     parser.add_argument("--record-pov", action="store_true")
     parser.add_argument("--ui-server", type=Path)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if not args.engine_server.is_file():
+        parser.error("engine_server must point to engine/server.py")
+    if args.ui_server and not args.ui_server.is_file():
+        parser.error("--ui-server must point to ui/server.mjs")
+    if args.command is not None and not args.command.strip():
+        parser.error("--command must not be blank")
+    if args.command and not args.expected_fixture_key:
+        parser.error("--expected-fixture-key is required for an assessed command run")
+    if args.command and args.measure_timing:
+        parser.error("--measure-timing is for offline rehearsal only")
     if args.command and args.max_decisions is None:
         parser.error("--max-decisions is required with --command")
     if args.command and args.ui_server:
@@ -279,6 +292,14 @@ def main():
             parser.error("Missing local configuration: " + ", ".join(missing))
         if not args.agent_root or not (args.agent_root / "agent" / "__main__.py").is_file():
             parser.error("--agent-root must point to Archit's agent checkout")
+    return args
+
+
+def main():
+    args = parse_args()
+    if args.preflight_only:
+        print("PASS: launcher configuration (no processes started or model calls)")
+        return
     sys.path.insert(0, str(args.engine_server.resolve().parent))
     spec = importlib.util.spec_from_file_location("engine_server", args.engine_server)
     engine = importlib.util.module_from_spec(spec)
@@ -293,19 +314,23 @@ def main():
     else:
         raise RuntimeError("Webots bridge did not start")
 
-    with engine.create_server(adapter, port=8080 if args.ui_server else 0) as server:
+    with engine.create_server(adapter, port=args.engine_port) as server:
         worker = threading.Thread(target=server.serve_forever)
         worker.start()
+        print(f"Engine HTTP: http://127.0.0.1:{server.server_port}")
         ui_process = None
         try:
             if args.command:
                 run_live(server, adapter, args)
                 return
+            if args.measure_timing:
+                from simulation.measure_timing import measure_timing
+                measure_timing(server, adapter)
             if args.ui_server:
                 ui_root = "http://127.0.0.1:18090"
                 ui_process = subprocess.Popen(
                     ["node", str(args.ui_server.resolve())],
-                    env={**os.environ, "ROVER_UI_PORT": "18090"},
+                    env={**os.environ, "ROVER_UI_PORT": "18090", "ROVER_ENGINE_PORT": str(args.engine_port)},
                 )
                 for _ in range(50):
                     if ui_process.poll() is not None:
