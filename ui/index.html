@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rover operator</title>
+<style>
+  body { font: 1rem system-ui; max-width: 46rem; margin: 2rem auto; padding: 0 1rem; }
+  input, button { font: inherit; padding: .5rem; }
+  input { width: min(100%, 30rem); box-sizing: border-box; }
+  img { width: min(100%, 640px); height: auto; background: #222; }
+  #mode { font-weight: bold; }
+</style>
+<main>
+  <h1>Rover operator</h1>
+  <p id="mode"></p>
+  <form id="controls">
+    <label for="command">Fetch command</label><br>
+    <input id="command" required placeholder="Bring the round red thing">
+    <button id="start" disabled>Start</button>
+    <button id="reset" type="button" disabled>Reset</button>
+  </form>
+  <p id="status" role="status"></p>
+  <p id="feedback" role="status"></p>
+  <h2>Front camera</h2>
+  <p id="camera-note"></p>
+  <img id="camera" width="640" height="480" alt="Rover front camera" hidden>
+</main>
+<script src="/operator.js" defer></script>
