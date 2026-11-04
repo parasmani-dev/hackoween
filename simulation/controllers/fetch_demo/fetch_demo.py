@@ -32,7 +32,8 @@ def run(robot):
         desired = math.atan2(goal_y - y, goal_x - x)
         degrees = -math.degrees(math.remainder(desired - drive.heading(), 2 * math.pi))
         report(f"TURN {degrees:.1f} degrees clockwise")
-        drive.turn(degrees)
+        if not drive.turn(degrees):
+            raise RuntimeError("Rover turn was blocked")
 
     def go_to(goal_x, goal_y, speed=0.65):
         face(goal_x, goal_y)

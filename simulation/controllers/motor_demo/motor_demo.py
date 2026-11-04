@@ -44,7 +44,7 @@ class RoverDrive:
     def contact(self):
         return bool(self.node.getContactPoints(False))
 
-    def move(self, distance, speed=1.0):
+    def move(self, distance, speed=1.0, *, leave_contact=False):
         if distance == 0:
             return True
         direction = math.copysign(1, distance)
@@ -58,9 +58,12 @@ class RoverDrive:
                 self.step()
                 x, y, _ = self.node.getPosition()
                 progress = direction * ((x - start_x) * math.cos(heading) + (y - start_y) * math.sin(heading))
-                if self.contact():
+                touching = self.contact()
+                if touching and not leave_contact:
                     return False
-                if progress >= abs(distance):
+                if not touching:
+                    leave_contact = False
+                if progress >= abs(distance) and not touching:
                     return True
                 if progress > best + 0.005:
                     best, stalled = progress, 0.0
@@ -74,7 +77,7 @@ class RoverDrive:
 
     def turn(self, degrees):
         if degrees == 0:
-            return
+            return True
         # Webots ENU yaw increases counterclockwise. Commands use clockwise.
         target = -math.radians(degrees)
         previous = self.heading()
@@ -83,12 +86,12 @@ class RoverDrive:
             for _ in range(math.ceil((abs(degrees) / 45 + 4) / self.dt)):
                 error = target - traveled
                 if abs(error) <= math.radians(2):
-                    return
+                    return True
                 rate = math.copysign(min(math.pi / 2, max(0.22, abs(error) * 3)), error)
                 self.command(0, rate)
                 self.step()
                 if self.contact():
-                    raise RuntimeError("Contact while turning")
+                    return False
                 heading = self.heading()
                 traveled += math.remainder(heading - previous, 2 * math.pi)
                 previous = heading
@@ -96,8 +99,14 @@ class RoverDrive:
         finally:
             self.stop()
 
-    def back_off(self, blocked_distance):
-        return self.move(-math.copysign(0.1, blocked_distance), speed=0.25)
+    def back_off(self, blocked_distance, approach_heading=None):
+        if approach_heading is None:
+            approach_heading = self.heading()
+        # Contact can spin the chassis. Retreat opposite the original travel
+        # direction even if the rover is now facing the other way.
+        alignment = math.cos(self.heading() - approach_heading)
+        retreat = -math.copysign(0.1, blocked_distance * alignment)
+        return self.move(retreat, speed=0.25, leave_contact=True)
 
 
 def run_check(robot, report):
@@ -121,7 +130,8 @@ def run_check(robot, report):
     report(f"BACKOFF: {clearance:.3f} m")
 
     initial_heading = drive.heading()
-    drive.turn(90)
+    if not drive.turn(90):
+        raise RuntimeError("Recovery turn was blocked")
     angle = math.degrees(math.remainder(drive.heading() - initial_heading, 2 * math.pi))
     if not -96 <= angle <= -84:
         raise RuntimeError(f"Unexpected turn: {angle:.1f} degrees")

@@ -227,8 +227,8 @@ DEF ROVER Robot {
     }
   ]
   boundingObject Pose {
-    translation 0 0 0.19
-    children [ Box { size 0.46 0.44 0.18 } ]
+    translation 0 0 0.15
+    children [ Box { size 0.52 0.46 0.20 } ]
   }
   physics Physics { density -1 mass 1.5 }
 }

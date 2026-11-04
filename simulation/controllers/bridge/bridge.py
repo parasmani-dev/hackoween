@@ -56,15 +56,15 @@ class Scene:
             return base64.b64encode(path.read_bytes()).decode("ascii")
 
     def move(self, distance):
+        approach_heading = self.drive.heading()
         success = self.drive.move(distance)
         if not success:
-            self.drive.back_off(distance)
+            self.drive.back_off(distance, approach_heading)
         self.status = ("Carry" if self.held else "Go to object") if success else "Blocked"
         return dict(success=success, collided=not success)
 
     def turn(self, degrees):
-        self.drive.turn(degrees)
-        return dict(success=True)
+        return dict(success=self.drive.turn(degrees))
 
     def carry(self):
         x, y, _ = self.drive.node.getPosition()
