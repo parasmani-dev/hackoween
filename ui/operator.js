@@ -49,11 +49,17 @@ if (mock) {
   let roverState = null;
   let busy = false;
   let revision = 0;
+  let offlineDemo = null;
+
+  async function readOfflineDemo() {
+    const response = await fetch("/offline-demo", { cache: "no-store" });
+    return response.ok ? await response.json() : null;
+  }
 
   function updateControls() {
-    command.disabled = busy || roverState !== "Idle";
-    start.disabled = command.disabled;
-    reset.disabled = busy || (roverState !== "Done" && roverState !== "Locate");
+    command.disabled = busy || roverState !== "Idle" || Boolean(offlineDemo?.enabled);
+    start.disabled = busy || roverState !== "Idle";
+    reset.disabled = busy || offlineDemo?.status === "running" || (roverState !== "Done" && roverState !== "Locate");
   }
 
   async function changeRun(path, args) {
@@ -75,9 +81,9 @@ if (mock) {
       roverState = state;
       status.textContent = state;
       feedback.textContent = state === "Locate"
-        ? "Engine ready. Launch the agent with the same command."
+        ? (offlineDemo?.enabled ? "Scripted fetch running." : "Engine ready. Launch the agent with the same command.")
         : "Rover reset.";
-      if (state === "Idle") command.value = "";
+      if (state === "Idle") command.value = offlineDemo?.enabled ? offlineDemo.command : "";
     } catch {
       feedback.textContent = "Action could not be confirmed. Check rover status before retrying.";
     } finally {
@@ -111,8 +117,18 @@ if (mock) {
       const response = await fetch("/state", { cache: "no-store" });
       if (!response.ok) throw new Error("State unavailable");
       const state = await response.json();
+      const demo = await readOfflineDemo();
       if (busy || observedRevision !== revision) return;
       roverState = state.state;
+      offlineDemo = demo;
+      if (demo?.enabled) {
+        byId("mode").textContent = "Offline scripted fetch";
+        command.value = demo.command;
+        feedback.textContent = {
+          idle: "", running: "Scripted fetch running.", pass: "PASS: Red sphere delivered.",
+          fail: "FAIL: Check the local driver log.",
+        }[demo.status];
+      }
       if (roverState !== "Locate" && feedback.textContent === "Engine ready. Launch the agent with the same command.") {
         feedback.textContent = "";
       }
