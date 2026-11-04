@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { readPreview } from "./preview.mjs";
 
 const pages = {
   "/": ["index.html", "text/html; charset=utf-8"],
@@ -32,7 +33,7 @@ createServer(async (request, response) => {
   }
   if (path === "/preview" && previewFile) {
     try {
-      const frame = readFileSync(previewFile);
+      const frame = readPreview(previewFile);
       response.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "no-store" });
       response.end(frame);
     } catch { response.writeHead(503).end(); }

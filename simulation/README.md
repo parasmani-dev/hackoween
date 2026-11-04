@@ -138,3 +138,12 @@ For a persistent real-adapter engine, launch the bridge world then run
 Run `node ui/server.mjs` with matching `ROVER_ENGINE_PORT`, `ROVER_UI_PORT`, and
 `ROVER_PREVIEW_FILE`. `ROVER_OFFLINE_DEMO=1` enables the fixed offline Start route;
 no model is launched by this preview setup.
+
+Preview health: the bridge writes an atomic `.json` sidecar alongside the JPEG,
+with a new session identity on startup and wall-clock heartbeats while idle.
+The UI returns 503 if no frame exists for that session, the camera buffer is
+unavailable, or the heartbeat is older than five seconds. The browser retains
+the last good image with an unavailable/stale label. Idle heartbeats do not
+advance physics or acquire agent images. The preview directory must be writable.
+Regression checks: `python -m unittest simulation.test_preview` and
+`node --test ui/preview.test.mjs`.

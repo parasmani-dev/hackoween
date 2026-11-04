@@ -7,6 +7,7 @@ import math
 import os
 import socket
 import sys
+import time
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
@@ -38,8 +39,10 @@ class Scene:
         self.capture = None
         self.preview_path = Path(os.environ["ROVER_PREVIEW_FILE"]) if os.environ.get("ROVER_PREVIEW_FILE") else None
         if self.preview_path is not None:
-            self.preview_path.parent.mkdir(parents=True, exist_ok=True)
+            self.preview_session = uuid4().hex
+            self.preview_ready = False
             self.drive.preview_step = self.publish_preview
+            self.preview_heartbeat()
         self.status = "Idle"
         self.reset()
 
@@ -85,6 +88,21 @@ class Scene:
             )
             return base64.b64encode(stream.getvalue()).decode("ascii")
 
+    def preview_heartbeat(self):
+        # Wall-clock liveness only: idle heartbeats never step simulation/camera.
+        if not self.preview_path:
+            return
+        try:
+            self.preview_path.parent.mkdir(parents=True, exist_ok=True)
+            status = Path(str(self.preview_path) + ".json")
+            pending = Path(str(status) + ".tmp")
+            pending.write_text(json.dumps({"session": self.preview_session,
+                                           "ready": self.preview_ready,
+                                           "heartbeat_ms": time.time() * 1000}))
+            pending.replace(status)
+        except OSError:
+            pass
+
     def publish_preview(self):
         # Operator-only feed; never advances physics or enters agent context.
         try:
@@ -92,9 +110,12 @@ class Scene:
             pending = self.preview_path.with_suffix(".tmp")
             pixels.save(pending, "JPEG", quality=80)
             pending.replace(self.preview_path)
-        except OSError:
-            # A viewer must never interrupt a physical action.
-            pass
+            self.preview_ready = True
+        except (OSError, ValueError):
+            # Webots can raise ValueError("NULL pointer access") before a frame exists.
+            # Keep the last good JPEG, but never advertise it as a current frame.
+            self.preview_ready = False
+        self.preview_heartbeat()
 
     def start_capture(self, command):
         if self.capture is not None:
@@ -221,8 +242,13 @@ def serve(scene, port):
                  "start_capture", "finish_capture")}
     with socket.create_server(("127.0.0.1", port)) as listener:
         logging.info("Webots bridge listening on loopback port %s", port)
+        listener.settimeout(0.5)
         while True:
-            connection, _ = listener.accept()
+            scene.preview_heartbeat()
+            try:
+                connection, _ = listener.accept()
+            except socket.timeout:
+                continue
             with connection:
                 connection.settimeout(3)
                 method = None

@@ -126,7 +126,9 @@ if (mock) {
       cameraNote.textContent = "";
     } catch {
       cameraFailures += 1;
-      if (cameraFailures >= 3) cameraNote.textContent = "Waiting for camera — showing the last received frame.";
+      if (cameraFailures >= 3) cameraNote.textContent = displayedFrame
+        ? "Camera unavailable or stale - showing the last received frame."
+        : "Camera unavailable - waiting for the first frame.";
     } finally {
       if (nextFrame) URL.revokeObjectURL(nextFrame);
       // One request/decode at a time. Hidden tabs do not poll the camera.
