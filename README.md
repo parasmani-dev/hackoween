@@ -24,10 +24,10 @@ This exercises the diagnostic backend, MCP transport, observations, episode rese
 
 | Owner | Deliverable | Acceptance check |
 | --- | --- | --- |
-| Person 1 | Webots room, rover, front camera, six shapes, drop zone, collision and snap pickup | Scripted moves can pick and drop an object with real collision handling |
-| Person 2 | Local HTTP API and state machine, serialized actions, retries, success evaluator | Required endpoints work and expose only permitted fields |
-| Person 3 | Python Claude API loop, tool schemas, image transmission, history and step budget | One tool call per decision, correct visual target selection, no hidden object data |
-| Person 4 | Command interface, logs, video export, integration and submission | Reproducible runs, complete JSONL/PNG artifacts, compliant MP4 clips |
+| Paras | Webots room, rover, front camera, six shapes, drop zone, collision and snap pickup | Scripted moves can pick and drop an object with real collision handling |
+| Vernit | Local HTTP API and state machine, serialized actions, retries, success evaluator | Required endpoints work and expose only permitted fields |
+| Archit | Python Claude API loop, tool schemas, image transmission, history and step budget | One tool call per decision, correct visual target selection, no hidden object data |
+| Ayush | Command interface, recording, video export and submission tooling | Reproducible runs, complete JSONL/PNG artifacts, compliant MP4 clips |
 
 ## Shared interface to implement first
 
@@ -40,6 +40,8 @@ This exercises the diagnostic backend, MCP transport, observations, episode rese
 - POST /drop releases the held object and reports zone inclusion.
 
 Keep object identities, colours, shapes, locations, counts, masks and zone coordinates out of every model-visible payload. Spectator views and evaluator data must never enter Claude context. Treat simulator exceptions as internal diagnostics and return sanitized action failures.
+
+Paras owns phased integration, shared configuration, and merges. Ayush supplies UI/recording deliverables for those gates.
 
 ## Integration milestones
 

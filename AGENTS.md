@@ -4,10 +4,11 @@ Read your assigned GitHub issue and all comments before starting each phase. The
 
 ## Ownership
 
-- Vernit (@guptavernit2-afk) owns simulation/ and branch feat/vernit-simulation.
-- Ayush (@ayushyadav0707) owns engine/ and branch feat/ayush-engine.
+- Paras (@parasmani-dev) owns simulation/ and branch feat/paras-simulation, plus phased integration and merges.
+- Vernit (@guptavernit2-afk) owns engine/ and branch feat/vernit-engine.
+- Ayush (@ayushyadav0707) owns ui/ and recording/ and branch feat/ayush-ui-recording.
 - Archit (@karchit1128) owns agent/ and branch feat/archit-agent.
-- Paras (@parasmani-dev) owns ui/, integration/, root configuration, docs/, and upstream submodule updates.
+- Paras (@parasmani-dev) owns integration/, root configuration, docs/, and upstream submodule updates.
 
 Each member creates a branch from main. Do not edit another owner's paths or shared root files without a proposal in the relevant issues and agreement from that owner. Put dependencies in your own directory's requirements.txt. Do not modify the upstream checkout. Preserve attribution for reused code.
 

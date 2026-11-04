@@ -2,9 +2,9 @@
 
 ## Process boundary
 
-The simulator owns all objects and physics. Ayush exposes HTTP on localhost:8080. Archit's agent sees only the allowlisted state, robot camera image, optional single-ray depth, and action outcomes. Evaluator truth is local to the engine. Object metadata must never enter prompts, tool schemas, returned exceptions, or model-visible filenames.
+The simulator owns all objects and physics. Vernit exposes HTTP on localhost:8080. Archit's agent sees only the allowlisted state, robot camera image, optional single-ray depth, and action outcomes. Evaluator truth is local to the engine. Object metadata must never enter prompts, tool schemas, returned exceptions, or model-visible filenames.
 
-Vernit provides a Python simulator adapter in simulation/adapter.py with state(), look(), depth(), move(distance), turn(degrees), pickup(), drop(), and close(). A simulator bridge is acceptable if Webots requires a separate process. Ayush and Vernit must agree transport details in their issues before implementation. State returns a dictionary, look returns JPEG bytes, depth returns float or None, and actions return dictionaries matching the HTTP contract. Methods complete only after their action completes.
+Paras provides a Python simulator adapter in simulation/adapter.py with state(), look(), depth(), move(distance), turn(degrees), pickup(), drop(), and close(). A simulator bridge is acceptable if Webots requires a separate process. Vernit and Paras must agree transport details in their issues before implementation. State returns a dictionary, look returns JPEG bytes, depth returns float or None, and actions return dictionaries matching the HTTP contract. Methods complete only after their action completes.
 
 ## HTTP payloads
 
@@ -18,7 +18,7 @@ Vernit provides a Python simulator adapter in simulation/adapter.py with state()
 
 Heading zero is +x. Serialize mutations. Reject nonfinite numbers and malformed requests before mutation. A collision stops motion, backs off 0.1 m, and enters Blocked. After three failed recovery retries terminate. Agree retry accounting before integration. Evaluation can distinguish pass, fail_wrong_object, fail_not_reached, fail_collision without exposing the selected object's identity to Claude.
 
-Lifecycle start/reset and evaluator endpoints belong to the operator interface and must be designed by Ayush with Paras. They are never Claude tools. A command has exactly one run at a time. Freeze physics while Claude thinks. Advance the world during commanded motion, with deterministic pickup/drop attachment updates.
+Lifecycle start/reset and evaluator endpoints belong to the operator interface and must be designed by Vernit with Paras. They are never Claude tools. A command has exactly one run at a time. Freeze physics while Claude thinks. Advance the world during commanded motion, with deterministic pickup/drop attachment updates.
 
 ## Agent and artifacts
 
