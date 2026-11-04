@@ -24,12 +24,13 @@ class Scene:
         self.drive = RoverDrive(robot)
         self.camera = robot.getDevice("front_camera")
         self.camera.enable(self.drive.timestep)
-        self.objects = [robot.getFromDef(f"ITEM_{index}") for index in range(1, 7)]
+        self.fixture_names = [f"ITEM_{index}" for index in range(1, 7)]
+        self.objects = [robot.getFromDef(name) for name in self.fixture_names]
+        self.fixture_nodes = [node.exportString() for node in self.objects]
+        self.world_children = robot.getRoot().getField("children")
         self.zone = robot.getFromDef("DROP_ZONE").getPosition()
-        self.initial = [
-            (node, node.getField("translation").getSFVec3f(), node.getField("rotation").getSFRotation())
-            for node in [self.drive.node, *self.objects]
-        ]
+        self.initial_position = self.drive.node.getField("translation").getSFVec3f()
+        self.initial_rotation = self.drive.node.getField("rotation").getSFRotation()
         self.held = None
         self.capture = None
         self.status = "Idle"
@@ -44,10 +45,17 @@ class Scene:
         self.status = "Idle"
         self.drive.after_step = None
         self.drive.command(0, 0)
-        for node, position, rotation in self.initial:
-            node.getField("translation").setSFVec3f(position)
-            node.getField("rotation").setSFRotation(rotation)
-            node.resetPhysics()
+        # Restoring transforms can leave released bodies with residual motion.
+        # Rebuild the six fixture bodies from their original scene definitions.
+        for node in self.objects:
+            node.remove()
+        for definition in self.fixture_nodes:
+            self.world_children.importMFNodeFromString(-1, definition)
+        self.objects = [self.drive.robot.getFromDef(name) for name in self.fixture_names]
+        rover = self.drive.node
+        rover.getField("translation").setSFVec3f(self.initial_position)
+        rover.getField("rotation").setSFRotation(self.initial_rotation)
+        rover.resetPhysics()
         self.drive.step()
 
     def state(self):
