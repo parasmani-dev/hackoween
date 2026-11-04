@@ -1,0 +1,3 @@
+[submodule "upstream/embodify"]
+	path = upstream/embodify
+	url = https://github.com/YidaYang/embodify.git
