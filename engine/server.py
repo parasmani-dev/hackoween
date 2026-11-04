@@ -9,9 +9,9 @@ from urllib.parse import urlsplit
 from PIL import Image, ImageDraw
 
 if __package__:
-    from .run_control import RunConflict, RunControl
+    from .run_control import FIXTURE_KEYS, RunConflict, RunControl
 else:
-    from run_control import RunConflict, RunControl
+    from run_control import FIXTURE_KEYS, RunConflict, RunControl
 
 
 STATE_FIELDS = ("state", "x", "y", "heading", "holding", "retry_count")
@@ -22,6 +22,7 @@ ACTION_ROUTES = {
     "/drop": ("drop", None, ("success", "in_zone")),
     "/run/start": ("start", "command", ()),
     "/run/reset": ("reset", None, ()),
+    "/run/finish": ("finish", "reason", ()),
 }
 MAX_ACTION_BODY = 1024
 
@@ -123,16 +124,26 @@ class EngineHandler(BaseHTTPRequestHandler):
         if len(raw_body) != size:
             raise ValueError("Incomplete action body")
         body = json.loads(raw_body.decode("utf-8"))
+        if parameter == "command":
+            if not isinstance(body, dict) or body.keys() - {"command", "expected_fixture_key"}:
+                raise ValueError("Unexpected start fields")
+            command = body.get("command")
+            if not isinstance(command, str) or not command.strip():
+                raise ValueError("Expected a non-empty command")
+            key = body.get("expected_fixture_key")
+            if key is not None and (not isinstance(key, str) or key not in FIXTURE_KEYS):
+                raise ValueError("Invalid expected fixture key")
+            return (key,)
         expected_fields = {parameter} if parameter is not None else set()
         if not isinstance(body, dict) or body.keys() != expected_fields:
             raise ValueError("Unexpected action fields")
         if parameter is None:
             return ()
         value = body[parameter]
-        if parameter == "command":
-            if not isinstance(value, str) or not value.strip():
-                raise ValueError("Expected a non-empty command")
-            return (value.strip(),)
+        if parameter == "reason":
+            if value not in ("decision_limit", "abandoned"):
+                raise ValueError("Invalid finish reason")
+            return ()
         if type(value) not in (int, float) or not math.isfinite(value):
             raise ValueError("Expected a finite number")
         return (value,)
@@ -145,8 +156,8 @@ class EngineHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def create_server(adapter, port=8080, *, evaluate_delivery=None):
-    control = RunControl(adapter, evaluate_delivery)
+def create_server(adapter, port=8080):
+    control = RunControl(adapter)
     return ThreadingHTTPServer(
         ("127.0.0.1", port), partial(EngineHandler, control=control)
     )

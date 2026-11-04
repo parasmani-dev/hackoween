@@ -1,4 +1,7 @@
+import logging
 from threading import Lock
+
+FIXTURE_KEYS = frozenset(f"item_{number}" for number in range(1, 7))
 
 
 class RunConflict(Exception):
@@ -6,18 +9,18 @@ class RunConflict(Exception):
 
 
 class RunControl:
-    def __init__(self, adapter, evaluate_delivery=None):
+    def __init__(self, adapter):
         self.adapter = adapter
-        self.evaluate_delivery = evaluate_delivery
         self.lock = Lock()
         self.clear()
 
     def clear(self):
         self.phase = "Idle"
-        self.command = None
+        self.expected_fixture_key = None
         self.holding = False
         self.retry_count = 0
         self.outcome = None
+        self.verdict_reason = None
         self.needs_reset = False
 
     def state(self):
@@ -37,6 +40,8 @@ class RunControl:
         if not self.lock.acquire(blocking=False):
             raise RunConflict("mutation_in_progress")
         try:
+            if method == "finish":
+                return self.finish()
             if method == "reset" or method == "start":
                 return self.lifecycle(method, args)
             if self.needs_reset:
@@ -70,9 +75,36 @@ class RunControl:
             raise
         self.clear()
         if method == "start":
-            self.command, = args
+            self.expected_fixture_key, = args
             self.phase = "Locate"
         return {"state": self.phase}
+
+    def finish(self):
+        if self.phase == "Idle":
+            raise RunConflict("no_active_run")
+        if self.phase != "Done":
+            self.phase = "Done"
+            self.outcome = "fail_not_reached"
+        result = {"state": self.phase, "outcome": self.outcome}
+        if self.verdict_reason is not None:
+            result["reason"] = self.verdict_reason
+        return result
+
+    def record_delivery(self):
+        delivered_key = None
+        if self.expected_fixture_key is not None:
+            read_key = getattr(self.adapter, "delivered_fixture_key", None)
+            if read_key is not None:
+                try:
+                    delivered_key = read_key()
+                except Exception:
+                    logging.warning("Private delivery evaluation unavailable")
+        if not isinstance(delivered_key, str) or delivered_key not in FIXTURE_KEYS:
+            self.verdict_reason = "evaluator_unavailable"
+        elif delivered_key == self.expected_fixture_key:
+            self.outcome = "pass"
+        else:
+            self.outcome = "fail_wrong_object"
 
     def advance(self, method, result):
         success = result["success"]
@@ -95,8 +127,6 @@ class RunControl:
             self.holding = False
             if result["in_zone"]:
                 self.phase = "Done"
-                if self.evaluate_delivery is not None:
-                    correct = self.evaluate_delivery(self.command)
-                    self.outcome = "pass" if correct else "fail_wrong_object"
+                self.record_delivery()
             elif self.phase != "Blocked":
                 self.phase = "Drop"
