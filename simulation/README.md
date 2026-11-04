@@ -57,7 +57,7 @@ The launcher starts the operator run and agent, then keeps request audits, frame
 
 ## Native operator POV capture
 
-Pass -RecordPov to the live launcher to record from HTTP Start through Finish.
+Pass -RecordPov to request engine-owned capture from Idle exit through the first Done.
 The same front camera renders at 1280×960 and the bridge resizes the agent
 JPEG to 640×480. Install Pillow in the Python environment Webots uses.
 
@@ -79,8 +79,46 @@ records simulation time, wall time, capture cadence, and measured rover motion.
 It does not certify wall-clock render FPS, exact constant motor speed, or approval
 for retiming submission videos.
 
-The current bridge steps during pickup and drop settling, and turn speed tapers
-near the target. These are explicit PDF audit items pending a reviewed physical
-implementation or an organizer interpretation; a passing rehearsal does not
-waive them. Keep the native capture clocks intact. Failed turn recovery and
-capture lifecycle changes require engine coordination in #2.
+The rover carries objects at floor level using a snap attachment; pickup sets the
+attachment and drop detaches at the existing position, without advancing physics
+or moving XY into the zone. There is no lift/fall animation. Attachment updates
+happen before motion rendering so the final camera frame represents the release
+position. Reset may warm/flush physics outside active runs and captures.
+
+Wheel braking removes post-command coasting. The turn controller compensates for
+skid steering using measured rover yaw. Regression tolerances are 15 mm travel,
+3 degrees heading and 150 ms turn-duration error; these are engineering test
+limits, not an organizer waiver of the specified nominal 1 m/s and 90 degrees/s.
+`-MeasureTiming` covers forward/reverse 0.5 m, 0.1/1.0 m, and +/-90/45/180 degrees.
+
+Native PNG encoding uses two workers and at most eight pending frames. Camera
+bytes are copied on the controller thread; finish waits for all writes and never
+publishes a complete manifest on a writer error. Simulation and wall clocks remain
+unchanged in the manifest. Submission playback policy is still an external gate.
+
+## Engine-owned recording and offline agent rehearsal
+
+Recording-enabled launch now requires the engine capture contract from PR #18.
+The launcher sends `record_pov: true` on private Start and reads capture ID/status/
+manifest only from private Finish. It never starts or finalizes a second capture.
+The engine owns Idle-to-Locate and terminal capture boundaries.
+
+Use `-OfflineAgentCheck` without `-Command` to run the real agent loop with a fixed
+scripted policy through HTTP and engine-owned recording after the usual checks.
+Both provider transports are patched to reject calls. Artifacts are under
+`runs/offline-agent/`, marked `execution_mode: offline_scripted`; these are not
+Claude acceptance or hidden-test evidence.
+
+## Private provenance and hidden attempts
+
+Each command-driven attempt writes provider, configured model, decision cap,
+command hash and attempt ID to private `provenance.json` before Start. The final
+private operator result also binds agent run and capture IDs. Credentials never
+enter those files. For authorized official commands only, supply `-OfficialSlot`
+(1, 2 or 3) and `-OfficialLedger <shared persistent directory>` plus `-RecordPov`.
+All three runs must use the same ledger on the designated submission laptop,
+across checkouts. A slot is claimed exclusively before Start; a second claim is
+rejected, including after failure. Claims are not automatically deleted. This
+local safeguard cannot enforce attempts made on other computers or another ledger.
+Do not use real official slots in rehearsals. No model call is authorized merely
+by these instructions.

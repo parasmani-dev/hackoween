@@ -16,9 +16,9 @@ Paras provides a Python simulator adapter in simulation/adapter.py with state(),
 - POST /pickup accepts {}, returns {success}. Reach 0.5 m, heading tolerance 30 degrees. No identity returned.
 - POST /drop accepts {}, returns {success, in_zone}.
 
-Heading zero is +x. Serialize mutations. Reject nonfinite numbers and malformed requests before mutation. A collision stops motion, backs off 0.1 m, and enters Blocked. After three failed recovery retries terminate. Agree retry accounting before integration. Evaluation can distinguish pass, fail_wrong_object, fail_not_reached, fail_collision without exposing the selected object's identity to Claude.
+Heading zero is +x. Serialize mutations. Reject nonfinite numbers and malformed requests before mutation. A collision stops motion, backs off 0.1 m, and enters Blocked. Initial blocked move or turn enters Blocked at retry 0. Failed recovery moves or turns consume one retry; safe turns preserve the count; a successful recovery move clears it. Three failed recovery actions terminate. This policy was agreed in issue #2. Evaluation can distinguish pass, fail_wrong_object, fail_not_reached, fail_collision without exposing the selected object's identity to Claude.
 
-Lifecycle start/reset and evaluator endpoints belong to the operator interface and must be designed by Vernit with Paras. They are never Claude tools. A command has exactly one run at a time. Freeze physics while Claude thinks. Advance the world during commanded motion, with deterministic pickup/drop attachment updates.
+Lifecycle start/reset and evaluator endpoints belong to the operator interface and must be designed by Vernit with Paras. They are never Claude tools. A command has exactly one run at a time. Freeze physics while Claude thinks. Advance active-run physics only during commanded motion. Pickup sets a floor-level snap attachment; drop detaches at its existing position without a physics tick. Reset warm-up occurs outside the active run.
 
 ## Agent and artifacts
 
@@ -29,3 +29,17 @@ Write runs/<run-id>/steps.jsonl with step, timestamp, tool, args, result, frame_
 ## First acceptance milestone
 
 Scripted HTTP fetch with collisions, then three different Claude-directed fetches hands-free. Verify absence of metadata leakage by inspecting actual requests sent to Claude. Diagnostic Embodify success alone does not satisfy this milestone.
+
+## Private capture and attempt provenance
+
+Operator Start accepts optional `record_pov: true`. The engine starts capture after
+reset before publishing Locate and finalizes exactly once at first confirmed Done.
+Only operator Finish returns `pov_capture_id`, `pov_status`, and `pov_manifest`.
+Uncertain actions or failed writes leave capture incomplete. The launcher must not
+also invoke capture hooks. These boundaries were agreed with engine/recording
+owners in #2; approval of submitted playback timing remains separate.
+
+Provider/model, attempt ID, optional official slot, agent run ID and capture ID
+are operator-only artifacts. Official slots are claimed once in a shared private
+ledger before Start; failed slots are never retried automatically. Scripted agent
+rehearsals are explicitly labeled and never count as live or hidden acceptance.
