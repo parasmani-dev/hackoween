@@ -1,18 +1,28 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { copyFile, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { pngSize } from './png-size.mjs';
 
 async function exportClip([source, commandPath, rate, destination, ...extra]) {
+  let manifest;
+  let command;
   const fps = Number(rate);
   if (!source || !commandPath || !destination?.toLowerCase().endsWith('.mp4') ||
       !Number.isInteger(fps) || fps < 1 || fps > 60 || extra.length) {
-    throw new Error('Usage: node recording/export.mjs <frames-dir> <command.txt> <fps> <output.mp4>');
+    throw new Error('Usage: node recording/export.mjs <frames-dir> <command.txt> <fps> <output.mp4>\n' +
+      '   or: node recording/export.mjs --capture <capture.json> <fps> <output.mp4>');
+  }
+  if (source === '--capture') {
+    manifest = await readFile(commandPath);
+    ({ command } = JSON.parse(manifest));
+    source = join(dirname(resolve(commandPath)), 'frames');
   }
 
-  const command = (await readFile(commandPath, 'utf8')).replace(/^\uFEFF/, '').replace(/\r?\n$/, '');
-  if (!command.trim() || /[\x00-\x1f\x7f]/u.test(command)) {
+  command = manifest ? command : (await readFile(commandPath, 'utf8')).replace(/^\uFEFF/, '').replace(/\r?\n$/, '');
+  if (typeof command !== 'string' || !command.trim() || /[\x00-\x1f\x7f]/u.test(command)) {
     throw new Error('command.txt must contain one nonempty line.');
   }
 
@@ -31,16 +41,10 @@ async function exportClip([source, commandPath, rate, destination, ...extra]) {
       }
 
       const frame = await readFile(join(source, name));
-      if (frame.length < 33 || frame.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a' ||
-          frame.toString('ascii', 12, 16) !== 'IHDR') {
-        throw new Error('Invalid PNG: ' + name);
-      }
-
-      const width = frame.readUInt32BE(16);
-      const height = frame.readUInt32BE(20);
+      const { width, height } = pngSize(frame, name);
       const size = width + 'x' + height;
-      if (width < 960 || height < 720 || (geometry && geometry !== size)) {
-        throw new Error('All frames must share native dimensions of at least 960×720.');
+      if (geometry && geometry !== size) {
+        throw new Error('All frames must share the same native dimensions.');
       }
       geometry = size;
       await writeFile(join(scratch, name), frame);
@@ -58,6 +62,13 @@ async function exportClip([source, commandPath, rate, destination, ...extra]) {
     if (result.status !== 0) throw new Error('FFmpeg export failed.');
 
     await copyFile(join(scratch, 'clip.mp4'), resolve(destination), constants.COPYFILE_EXCL);
+    if (manifest) {
+      const sha256 = data => createHash('sha256').update(data).digest('hex');
+      await writeFile(destination + '.export.json', JSON.stringify({
+        manifest_sha256: sha256(manifest),
+        clip_sha256: sha256(await readFile(join(scratch, 'clip.mp4'))),
+      }) + '\n', { flag: 'wx' });
+    }
     console.log('Exported ' + seconds + ' seconds to ' + resolve(destination));
   } finally {
     await rm(scratch, { recursive: true, force: true });

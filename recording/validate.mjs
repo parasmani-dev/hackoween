@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { readFile, stat } from 'node:fs/promises';
+import { open, readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { pngSize } from './png-size.mjs';
 
 async function validate([manifestPath, clipPath, ...extra]) {
   if (!manifestPath || !clipPath || extra.length) {
@@ -16,6 +17,8 @@ async function validate([manifestPath, clipPath, ...extra]) {
 
   let lastSim = -1;
   let lastWall = -Infinity;
+  let nativeSize;
+  const header = Buffer.alloc(33);
   for (const [index, frame] of frames.entries()) {
     const name = 'frames/' + String(index).padStart(6, '0') + '.png';
     const wallUtc = frame?.wall_time_utc?.replace(/\+00:00$/, 'Z');
@@ -27,8 +30,16 @@ async function validate([manifestPath, clipPath, ...extra]) {
         wall < lastWall) {
       throw new Error('Invalid path or timestamp for frame ' + index + '.');
     }
-    if (!(await stat(resolve(dirname(manifestPath), name))).isFile()) {
-      throw new Error('Expected a frame file: ' + name);
+    const file = await open(resolve(dirname(manifestPath), name), 'r');
+    try {
+      const { bytesRead } = await file.read(header);
+      const size = pngSize(header.subarray(0, bytesRead), name);
+      nativeSize ??= size;
+      if (size.width !== nativeSize.width || size.height !== nativeSize.height) {
+        throw new Error('All frames must share the same native dimensions.');
+      }
+    } finally {
+      await file.close();
     }
     lastSim = frame.sim_time_ms;
     lastWall = wall;
@@ -39,14 +50,18 @@ async function validate([manifestPath, clipPath, ...extra]) {
   ], { encoding: 'utf8' }));
   const [video] = probe.streams;
   const seconds = Number(probe.format.duration);
+  // The exporter pads odd native dimensions by one pixel for yuv420p.
+  const width = nativeSize.width + nativeSize.width % 2;
+  const height = nativeSize.height + nativeSize.height % 2;
   if (!clipPath.toLowerCase().endsWith('.mp4') || !probe.format.format_name.split(',').includes('mp4') ||
       probe.streams.length !== 1 || video.codec_type !== 'video' || video.codec_name !== 'h264' ||
-      video.width !== 1280 || video.height !== 960 || Number(video.nb_read_frames) !== frames.length ||
+      video.width !== width || video.height !== height || Number(video.nb_read_frames) !== frames.length ||
       !Number.isFinite(seconds) || seconds < 10 || seconds > 20) {
-    throw new Error('Expected a silent 1280×960 H.264 MP4 of 10–20 seconds with one frame per manifest entry.');
+    throw new Error('Expected a silent ' + width + '×' + height +
+      ' H.264 MP4 of 10–20 seconds with one frame per manifest entry.');
   }
 
-  console.log(run_id + ': ' + frames.length + ' frames, 1280×960 H.264, ' + seconds + ' seconds.');
+  console.log(run_id + ': ' + frames.length + ' frames, ' + width + '×' + height + ' H.264, ' + seconds + ' seconds.');
 }
 
 try {
