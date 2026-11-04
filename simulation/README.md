@@ -33,3 +33,13 @@ The rehearsal drives the physical wheel motors along a fixed route. It checks pi
 The rover reverses into the west wall, stops, backs away by 0.1 m, turns clockwise, and drives clear. PowerShell reports the measured backoff, turn, and recovery travel. Add `-Fast` to run in batch mode.
 
 `RoverDrive` uses Webots wheel velocity commands and measures progress from the rover's own pose. Drive actions stop on chassis contact, two seconds without meaningful progress, or a bounded timeout. This standalone check exercises one recovery sequence. Retry accounting and integration with the engine belong to the bridge work.
+
+## Full fetch through HTTP
+
+From the repository root, with Pillow installed, pass the path to Vernit's engine server checkout. The launcher starts a temporary Webots world, uses the real bridge with the engine's create_server factory, and checks the fetch and wall collision via HTTP. The fixture uses a private adapter reset between scenarios.
+
+```powershell
+.\simulation\check_http_fetch.ps1 -EngineServer '..\engine-checkout\engine\server.py'
+```
+
+The bridge binds only to loopback. The launcher defaults to port 18765 for the check. The production adapter and bridge default to 8765. Depth is optional and currently unavailable. The HTTP fixture targets the diagnostic engine action routes at ae23839. Operator lifecycle, retry counting, and target correctness evaluation require the later engine integration.
