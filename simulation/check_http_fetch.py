@@ -189,6 +189,7 @@ def run_live(server, adapter, args):
             sys.executable, "-m", "agent", args.command,
             "--provider", args.provider, "--engine-url", root,
             "--audit-requests", "--output-root", str(evidence_dir),
+            "--max-decisions", str(args.max_decisions),
         ], cwd=args.agent_root, stdout=subprocess.PIPE, text=True, encoding="utf-8")
         exit_code = run.returncode
         print(run.stdout, end="")
@@ -244,10 +245,13 @@ def main():
     parser.add_argument("--agent-root", type=Path)
     parser.add_argument("--provider", choices=("claude", "openai"), default="claude")
     parser.add_argument("--command")
+    parser.add_argument("--max-decisions", type=int, choices=range(1, 61), metavar="1..60")
     parser.add_argument("--expected-fixture-key", choices=[f"item_{i}" for i in range(1, 7)])
     parser.add_argument("--record-pov", action="store_true")
     parser.add_argument("--ui-server", type=Path)
     args = parser.parse_args()
+    if args.command and args.max_decisions is None:
+        parser.error("--max-decisions is required with --command")
     if args.command and args.ui_server:
         parser.error("--ui-server is for the offline rehearsal")
     if args.command:
