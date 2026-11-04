@@ -92,7 +92,7 @@ class ClaudeClientTests(unittest.TestCase):
         payload = request.call_args.kwargs["payload"]
         self.assertEqual(payload["model"], "mock-model")
         self.assertEqual(payload["messages"], messages)
-        self.assertTrue(payload["tool_choice"]["disable_parallel_tool_use"])
+        self.assertEqual(payload["tool_choice"], {"type": "any", "disable_parallel_tool_use": True})
         self.assertEqual([tool["name"] for tool in payload["tools"]], ["move", "turn", "pickup", "drop"])
         for tool in payload["tools"]:
             self.assertTrue(tool["strict"])
