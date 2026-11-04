@@ -4,20 +4,21 @@ import { constants } from 'node:fs';
 import { copyFile, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { pngSize } from './png-size.mjs';
 
 async function exportClip([source, commandPath, rate, destination, ...extra]) {
   let manifest;
   let command;
-  if (source === '--capture') {
-    manifest = await readFile(commandPath);
-    ({ command } = JSON.parse(manifest));
-    source = join(dirname(resolve(commandPath)), 'frames');
-  }
   const fps = Number(rate);
   if (!source || !commandPath || !destination?.toLowerCase().endsWith('.mp4') ||
       !Number.isInteger(fps) || fps < 1 || fps > 60 || extra.length) {
     throw new Error('Usage: node recording/export.mjs <frames-dir> <command.txt> <fps> <output.mp4>\n' +
       '   or: node recording/export.mjs --capture <capture.json> <fps> <output.mp4>');
+  }
+  if (source === '--capture') {
+    manifest = await readFile(commandPath);
+    ({ command } = JSON.parse(manifest));
+    source = join(dirname(resolve(commandPath)), 'frames');
   }
 
   command = manifest ? command : (await readFile(commandPath, 'utf8')).replace(/^\uFEFF/, '').replace(/\r?\n$/, '');
@@ -40,16 +41,10 @@ async function exportClip([source, commandPath, rate, destination, ...extra]) {
       }
 
       const frame = await readFile(join(source, name));
-      if (frame.length < 33 || frame.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a' ||
-          frame.toString('ascii', 12, 16) !== 'IHDR') {
-        throw new Error('Invalid PNG: ' + name);
-      }
-
-      const width = frame.readUInt32BE(16);
-      const height = frame.readUInt32BE(20);
+      const { width, height } = pngSize(frame, name);
       const size = width + 'x' + height;
-      if (width < 960 || height < 720 || (geometry && geometry !== size)) {
-        throw new Error('All frames must share native dimensions of at least 960×720.');
+      if (geometry && geometry !== size) {
+        throw new Error('All frames must share the same native dimensions.');
       }
       geometry = size;
       await writeFile(join(scratch, name), frame);
