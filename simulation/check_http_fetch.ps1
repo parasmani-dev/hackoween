@@ -2,7 +2,11 @@ param(
     [Parameter(Mandatory)]
     [string]$EngineServer,
     [string]$WebotsExe = './runs/webots/msys64/mingw64/bin/webots.exe',
-    [int]$BridgePort = 18765
+    [int]$BridgePort = 18765,
+    [string]$AgentRoot,
+    [ValidateSet("claude", "openai")]
+    [string]$Provider = "claude",
+    [string]$Command
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,9 +17,17 @@ $world=Join-Path $output 'worlds/fetch_room.wbt'
 (Get-Content $world -Raw).Replace('controller "scene_preview"','controller "bridge"') | Set-Content $world -Encoding ascii
 $env:ROVER_WEBOTS_PORT = [string]$BridgePort
 $exe=(Resolve-Path -LiteralPath $WebotsExe).Path
-$p=Start-Process $exe -ArgumentList @('--batch','--mode=fast','--minimize',('"' + $world + '"')) -WindowStyle Hidden -PassThru
+$checkArgs = @("$EngineServer", '--bridge-port', "$BridgePort")
+$webotsArgs = @('--batch', '--mode=fast', '--minimize', ('"' + $world + '"'))
+$window = 'Hidden'
+if ($Command) {
+    $checkArgs += @('--agent-root', "$AgentRoot", '--provider', $Provider, '--command', $Command)
+    $webotsArgs = @('--batch', '--mode=realtime', ('"' + $world + '"'))
+    $window = 'Normal'
+}
+$p=Start-Process $exe -ArgumentList $webotsArgs -WindowStyle $window -PassThru
 try {
- python -m simulation.check_http_fetch "$EngineServer" --bridge-port $BridgePort
+ python -m simulation.check_http_fetch @checkArgs
  $testCode=$LASTEXITCODE
 } finally {
  if (-not $p.HasExited) { Stop-Process -InputObject $p }

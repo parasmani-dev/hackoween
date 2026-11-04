@@ -4,6 +4,9 @@ import argparse
 import importlib.util
 import json
 import math
+import os
+import subprocess
+import sys
 import threading
 import time
 from io import BytesIO
@@ -75,7 +78,20 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("engine_server", type=Path)
     parser.add_argument("--bridge-port", type=int, default=8765)
+    parser.add_argument("--agent-root", type=Path)
+    parser.add_argument("--provider", choices=("claude", "openai"), default="claude")
+    parser.add_argument("--command")
     args = parser.parse_args()
+    if args.command:
+        required = ("OPENAI_API_KEY", "OPENAI_MODEL") if args.provider == "openai" else (
+            "ANTHROPIC_API_KEY", "CLAUDE_MODEL"
+        )
+        missing = [key for key in required if not os.getenv(key)]
+        if missing:
+            parser.error("Missing local configuration: " + ", ".join(missing))
+        if not args.agent_root or not (args.agent_root / "agent" / "__main__.py").is_file():
+            parser.error("--agent-root must point to Archit's agent checkout")
+    sys.path.insert(0, str(args.engine_server.resolve().parent))
     spec = importlib.util.spec_from_file_location("engine_server", args.engine_server)
     engine = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(engine)
@@ -93,6 +109,23 @@ def main():
         worker = threading.Thread(target=server.serve_forever)
         worker.start()
         try:
+            if args.command:
+                root = f"http://127.0.0.1:{server.server_port}"
+                request = Request(root + "/run/start", data=json.dumps({"command": args.command}).encode())
+                with urlopen(request, timeout=35) as response:
+                    assert json.load(response)["state"] == "Locate"
+                run = subprocess.run([
+                    sys.executable, "-m", "agent", args.command,
+                    "--provider", args.provider, "--engine-url", root,
+                    "--audit-requests", "--output-root", str(Path("runs/live").resolve()),
+                ], cwd=args.agent_root)
+                if run.returncode:
+                    raise SystemExit(run.returncode)
+                evidence = Path("runs/live/final-camera.jpg")
+                evidence.write_bytes(adapter.look())
+                print(f"Final rover camera: {evidence.resolve()}")
+                print("Record the private delivery verdict separately from the agent stop reason.")
+                return
             check(server, adapter)
             adapter.reset()
             state = adapter.state()

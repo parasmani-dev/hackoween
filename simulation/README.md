@@ -43,3 +43,13 @@ From the repository root, with Pillow installed, pass the path to Vernit's engin
 ```
 
 The bridge binds only to loopback. The launcher defaults to port 18765 for the check. The production adapter and bridge default to 8765. Depth is optional and currently unavailable. The HTTP fixture targets the diagnostic engine action routes at ae23839. Operator lifecycle, retry counting, and target correctness evaluation require the later engine integration.
+
+## Live model run
+
+Pass Vernit's server and Archit's checkout to the same launcher. Set the selected provider's key and model in your local shell. Claude uses ANTHROPIC_API_KEY and CLAUDE_MODEL. OpenAI uses OPENAI_API_KEY and OPENAI_MODEL.
+
+```powershell
+.\simulation\check_http_fetch.ps1 -EngineServer '<engine-checkout>\engine\server.py' -AgentRoot '<agent-checkout>' -Provider openai -Command 'Fetch the red sphere and drop it in the green zone'
+```
+
+The launcher starts the operator run and agent, then keeps request audits and frame logs under runs/live. The agent stop reason indicates engine termination. Record the delivery verdict separately.
