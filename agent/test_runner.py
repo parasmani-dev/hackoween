@@ -101,7 +101,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(self.records(result)[0]["result"], {"outcome": "uncertain"})
 
     def test_exhausted_recovery_stops_before_next_decision(self):
-        self.engine.state.side_effect = [state("Blocked", 2), state("Blocked", 3)]
+        self.engine.state.side_effect = [state("Blocked", 2), state("Done", 3)]
         result = self.run_rover()
         self.assertEqual((result.status, result.decisions), ("recovery_exhausted", 1))
         self.engine.execute.assert_called_once()

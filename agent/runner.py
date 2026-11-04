@@ -54,10 +54,10 @@ def _capture(engine, run_dir, index):
 
 
 def _terminal_status(state):
+    if state["state"] in ("Blocked", "Done") and state["retry_count"] >= 3:
+        return "recovery_exhausted"
     if state["state"] == "Done":
         return "engine_done"
-    if state["state"] == "Blocked" and state["retry_count"] >= 3:
-        return "recovery_exhausted"
     return None
 
 

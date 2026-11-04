@@ -11,9 +11,8 @@ python -m agent "Fetch the red sphere and drop it in the green zone"
 The CLI prints a JSON result with the stop reason, decision count, token usage,
 and run directory. Python callers can use `agent.runner.run_command` directly.
 `engine_done` means the engine reached its terminal state. The operator
-evaluator reports the task outcome separately. The runner uses the engine's
-`Done` state and treats `Blocked` with `retry_count >= 3` as exhausted recovery
-pending confirmation of the integrated engine's behavior.
+evaluator reports the task outcome separately. The runner treats `Done` or
+`Blocked` with `retry_count >= 3` as exhausted recovery.
 
 The runner writes `steps.jsonl` under a unique directory in `runs/`. Each row
 describes one action attempt. Its UTC timestamp is the dispatch time, and
