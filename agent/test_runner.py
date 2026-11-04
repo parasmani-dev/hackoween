@@ -131,6 +131,65 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual((result.status, result.decisions), ("navigation_stalled", 15))
         self.assertEqual(self.engine.execute.call_count, 12)
 
+    def test_audit_reconciles_frames_and_rejected_turn_for_both_providers(self):
+        for provider, module in (("claude", "claude"), ("openai", "openai_client")):
+            with self.subTest(provider=provider):
+                responses = []
+                for degrees in (-15, 10, -10, 15):
+                    args = {"degrees": degrees}
+                    if provider == "claude":
+                        body = {
+                            "stop_reason": "tool_use",
+                            "content": [{"type": "tool_use", "name": "turn", "input": args}],
+                            "usage": {"input_tokens": 1, "output_tokens": 1},
+                        }
+                    else:
+                        body = {
+                            "choices": [{"finish_reason": "tool_calls", "message": {"tool_calls": [
+                                {"type": "function", "function": {"name": "turn",
+                                                                 "arguments": json.dumps(args)}}
+                            ]}}],
+                            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                        }
+                    responses.append(("application/json", json.dumps(body).encode()))
+                self.engine.reset_mock()
+                self.engine.look.side_effect = [jpeg(color) for color in ("red", "blue", "white", "black")]
+                command = "Fetch the red sphere and drop it in the marked zone"
+                with patch.dict(os.environ, {
+                    "ANTHROPIC_API_KEY": "offline-test-key", "CLAUDE_MODEL": "offline-claude",
+                    "OPENAI_API_KEY": "offline-test-key", "OPENAI_MODEL": "offline-openai",
+                }), patch(f"agent.{module}.request", side_effect=responses) as request:
+                    result = run_command(command, engine=self.engine, provider=provider,
+                                         output_root=self.temp.name, max_decisions=4, audit_requests=True)
+                rows = self.records(result)
+                audit = (result.run_dir / f"{provider}_requests.jsonl").read_text(encoding="utf-8")
+                payloads = [json.loads(line) for line in audit.splitlines()]
+                self.assertEqual(result.decisions, 4)
+                self.assertEqual(payloads, [call.kwargs["payload"] for call in request.call_args_list])
+                self.assertEqual(len(rows), 4)
+                self.assertEqual(self.engine.execute.call_count, 3)
+                self.assertEqual(rows[-1]["result"]["outcome"], "not_dispatched")
+                self.assertNotIn("offline-test-key", audit)
+                for row, payload in zip(rows, payloads, strict=True):
+                    if provider == "claude":
+                        blocks = payload["messages"][0]["content"]
+                        encoded = blocks[1]["source"]["data"]
+                        names = {tool["name"] for tool in payload["tools"]}
+                    else:
+                        blocks = payload["messages"][1]["content"]
+                        encoded = blocks[1]["image_url"]["url"].split(",", 1)[1]
+                        names = {tool["function"]["name"] for tool in payload["tools"]}
+                    context = json.loads(blocks[0]["text"])
+                    self.assertEqual(set(context), {"command", "state", "remaining_decisions", "recent_actions"})
+                    self.assertEqual(context["command"], command)
+                    self.assertEqual(set(context["state"]), {"state", "x", "y", "heading", "holding", "retry_count"})
+                    self.assertEqual(names, {"move", "turn", "pickup", "drop"})
+                    self.assertEqual(base64.b64decode(encoded), (result.run_dir / row["frame_path"]).read_bytes())
+                    for action in context["recent_actions"]:
+                        self.assertEqual(set(action), {"tool", "args", "result"})
+                        self.assertEqual(set(action["args"]), {"degrees"})
+                        self.assertEqual(set(action["result"]), {"success"})
+
     def test_decision_cap_compact_history_and_unique_runs(self):
         first = self.run_rover()
         self.assertEqual((first.status, first.decisions), ("decision_limit", 60))

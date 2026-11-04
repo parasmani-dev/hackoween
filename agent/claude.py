@@ -41,7 +41,7 @@ class ClaudeClient:
             "messages": messages,
             "system": system,
             "tools": tool_definitions(),
-            "tool_choice": {"type": "auto", "disable_parallel_tool_use": True},
+            "tool_choice": {"type": "any", "disable_parallel_tool_use": True},
         }
         if self._audit_request is not None:
             self._audit_request(payload)
