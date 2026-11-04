@@ -26,7 +26,7 @@ def run(port):
             raise RuntimeError("Scripted move was blocked")
 
     try:
-        drive(-1.01, 0.44)
+        drive(-0.96, 0.46)
         face(-0.55, 0.65)
         if not call("/pickup", {})["success"]:
             raise RuntimeError("Scripted pickup missed")

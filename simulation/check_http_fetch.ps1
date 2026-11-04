@@ -14,6 +14,9 @@ param(
     [string]$MaxDecisions,
     [string]$ExpectedFixtureKey,
     [switch]$RecordPov,
+    [ValidateSet(1, 2, 3)]
+    [int]$OfficialSlot,
+    [string]$OfficialLedger,
     [string]$UiServer
 )
 
@@ -28,6 +31,8 @@ if ($PSBoundParameters.ContainsKey('MaxDecisions')) {
     $MaxDecisions = [int]$MaxDecisions
 }
 $checkArgs = @("$EngineServer", '--bridge-port', "$BridgePort", '--engine-port', "$EnginePort")
+if ($PSBoundParameters.ContainsKey("OfficialSlot")) { $checkArgs += @("--official-slot", "$OfficialSlot") }
+if ($OfficialLedger) { $checkArgs += @("--official-ledger", $OfficialLedger) }
 if ($UiServer) { $checkArgs += @('--ui-server', $UiServer) }
 if ($MeasureTiming) { $checkArgs += '--measure-timing' }
 $webotsArgs = @('--batch', '--mode=fast', '--minimize')
@@ -55,7 +60,8 @@ $world = Join-Path $output 'worlds/fetch_room.wbt'
 $env:ROVER_WEBOTS_PORT = [string]$BridgePort
 # Append the generated world only after preflight has succeeded.
 $webotsArgs += ('"' + $world + '"')
-$p=Start-Process $exe -ArgumentList $webotsArgs -WindowStyle $window -PassThru
+$webotsArgs += @("--stdout", "--stderr")
+$p=Start-Process $exe -ArgumentList $webotsArgs -WindowStyle $window -RedirectStandardOutput (Join-Path $output "stdout.log") -RedirectStandardError (Join-Path $output "stderr.log") -PassThru
 try {
  python -m simulation.check_http_fetch @checkArgs
  $testCode=$LASTEXITCODE

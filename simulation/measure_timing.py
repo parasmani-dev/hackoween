@@ -63,10 +63,11 @@ def measure_timing(server, adapter):
     assert frozen["simulation_seconds"] == 0 and frozen["frames"] == 1
     movement = measure("move_0.5m", lambda: call("/move", {"distance": 0.5}))
     assert movement["result"] == {"success": True, "collided": False}
-    assert 0.45 <= movement["displacement_metres"] <= 0.65
+    assert abs(movement["displacement_metres"] - 0.5) <= 0.015
     turning = measure("turn_90deg", lambda: call("/turn", {"degrees": 90}))
     assert turning["result"] == {"success": True}
-    assert 84 <= turning["heading_change_degrees"] <= 96
+    assert abs(turning["heading_change_degrees"] - 90) <= 3
+    assert abs(turning["simulation_seconds"] - 1.0) <= 0.15
 
     call("/run/reset", {})
     call("/run/start", command)
@@ -74,16 +75,31 @@ def measure_timing(server, adapter):
         pose = call("/state")
         degrees = math.remainder(-math.degrees(math.atan2(y - pose["y"], x - pose["x"])) - pose["heading"], 360)
         assert call("/turn", {"degrees": degrees}) == {"success": True}
-    face(-1.01, 0.44)
+    face(-0.96, 0.46)
     pose = call("/state")
-    assert call("/move", {"distance": math.hypot(-1.01 - pose["x"], 0.44 - pose["y"])})["success"]
+    assert call("/move", {"distance": math.hypot(-0.96 - pose["x"], 0.46 - pose["y"])})["success"]
     face(-0.55, 0.65)
     pickup = measure("pickup", lambda: call("/pickup", {}))
     assert pickup["result"] == {"success": True}
+    assert pickup["simulation_seconds"] == 0
     release = measure("out_of_zone_drop", lambda: call("/drop", {}))
     assert release["result"] == {"success": True, "in_zone": False}
+    assert release["simulation_seconds"] == 0
     call("/run/finish", {"reason": "abandoned"})
     call("/run/reset", {})
+    for distance in (-0.5, 0.1, 1.0):
+        call("/run/start", command)
+        measured = measure(f"move_{distance}m", lambda: call("/move", {"distance": distance}))
+        assert measured["result"] == {"success": True, "collided": False}
+        assert abs(measured["displacement_metres"] - abs(distance)) <= 0.015, measured
+        call("/run/reset", {})
+    for degrees in (-90, 45, 180):
+        call("/run/start", command)
+        measured = measure(f"turn_{degrees}deg", lambda: call("/turn", {"degrees": degrees}))
+        assert measured["result"] == {"success": True}
+        assert abs(math.remainder(measured["heading_change_degrees"] - degrees, 360)) <= 3, measured
+        assert abs(measured["simulation_seconds"] - abs(degrees) / 90) <= 0.15, measured
+        call("/run/reset", {})
     output = Path(mkdtemp(prefix="timing-", dir=Path("runs"))) / "measurements.json"
     output.write_text(json.dumps({"kind": "offline_scripted_measurements", "model_calls": 0,
                                   "records": records}, indent=2) + "\n")

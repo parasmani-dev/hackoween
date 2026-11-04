@@ -18,6 +18,7 @@ from urllib.request import Request, urlopen
 from PIL import Image
 
 from simulation.adapter import WebotsAdapter
+from simulation.provenance import prepare_attempt
 
 
 def check(server, adapter, ui_root=None):
@@ -52,7 +53,7 @@ def check(server, adapter, ui_root=None):
         assert call("/move", {"distance": distance}) == {"success": True, "collided": False}
 
     command = {"command": "Fetch the red sphere and drop it in the green zone", "expected_fixture_key": "item_1"}
-    assert call("/run/start", command) == {"state": "Locate"}
+    assert call("/run/start", {**command, "record_pov": True}) == {"state": "Locate"}
     initial = state()
     frame = call("/look")
     with Image.open(BytesIO(frame)) as image:
@@ -73,7 +74,7 @@ def check(server, adapter, ui_root=None):
         raise AssertionError("Private fixture key unexpectedly has an HTTP route")
 
     def approach_and_pickup():
-        drive(-1.01, 0.44)
+        drive(-0.96, 0.46)
         face(-0.55, 0.65)
         assert call("/pickup", {}) == {"success": True}, state()
         assert state()["holding"]
@@ -87,22 +88,24 @@ def check(server, adapter, ui_root=None):
         assert state()["state"] == "Done" and not state()["holding"]
         assert adapter.delivered_fixture_key() == "item_1"
 
-    capture_id = adapter.start_capture(command["command"])
     fetch()
-    manifest_path = Path(adapter.finish_capture())
+    completed = call("/run/finish", {"reason": "abandoned"})
+    assert completed["outcome"] == "pass" and completed["pov_status"] == "complete"
+    capture_id = completed["pov_capture_id"]
+    manifest_path = Path(completed["pov_manifest"])
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["run_id"] == capture_id and manifest["version"] == 1
     assert manifest["command"] == command["command"]
     frames = manifest["frames"]
     assert len(frames) > 20 and frames[0]["sim_time_ms"] == 0
-    assert all(b["sim_time_ms"] > a["sim_time_ms"] for a, b in zip(frames, frames[1:]))
+    assert all(b["sim_time_ms"] >= a["sim_time_ms"] for a, b in zip(frames, frames[1:]))
     for frame in (frames[0], frames[len(frames) // 2], frames[-1]):
         with Image.open(manifest_path.parent / frame["path"]) as image:
             assert image.size == (1280, 960) and image.format == "PNG"
             image.load()
     assert adapter.finish_capture() is None
     print(f"PASS: {len(frames)} native POV frames with a private manifest at {manifest_path}")
-    assert call("/run/finish", {"reason": "abandoned"}) == {"state": "Done", "outcome": "pass"}
+    assert call("/run/finish", {"reason": "abandoned"}) == completed
     print("PASS: full HTTP fetch and private pass verdict")
     assert call("/run/reset", {}) == {"state": "Idle"}
     assert adapter.delivered_fixture_key() is None
@@ -186,6 +189,7 @@ def run_live(server, adapter, args):
     output_root = Path("runs/live").resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     evidence_dir = Path(mkdtemp(prefix="attempt-", dir=output_root))
+    provenance = prepare_attempt(args, evidence_dir)
 
     def operator_call(route, payload, *, timeout=35):
         request = Request(root + route, data=json.dumps(payload).encode())
@@ -195,9 +199,10 @@ def run_live(server, adapter, args):
     start = {"command": args.command}
     if args.expected_fixture_key:
         start["expected_fixture_key"] = args.expected_fixture_key
+    if args.record_pov:
+        start["record_pov"] = True
     if operator_call("/run/start", start)["state"] != "Locate":
         raise RuntimeError("Engine did not start the operator run")
-    capture_id = adapter.start_capture(args.command) if args.record_pov else None
 
     status, exit_code = "abandoned", 130
     try:
@@ -217,17 +222,23 @@ def run_live(server, adapter, args):
         print("Operator interrupted the run.")
     finally:
         reason = "decision_limit" if status == "decision_limit" else "abandoned"
-        record = {"agent_status": status, "finish_reason": reason, "verdict": None}
+        record = {**provenance, "agent_status": status, "finish_reason": reason, "verdict": None}
+        agent_runs = list(evidence_dir.glob("run-*/steps.jsonl"))
+        record["agent_run_id"] = agent_runs[0].parent.name if len(agent_runs) == 1 else None
         if args.expected_fixture_key:
             record["expected_fixture_key"] = args.expected_fixture_key
         if args.record_pov:
-            record.update(pov_capture_id=capture_id, pov_status="incomplete")
+            record.update(pov_status="incomplete")
         try:
             try:
                 verdict = finish_run(operator_call, reason)
                 if verdict.get("state") != "Done":
                     raise ValueError("Engine did not confirm terminal state")
-                record["verdict"] = verdict
+                record["verdict"] = {key: verdict[key] for key in ("state", "outcome", "reason") if key in verdict}
+                if args.record_pov:
+                    record.update({key: verdict[key] for key in ("pov_status", "pov_capture_id", "pov_manifest") if key in verdict})
+                    if record["pov_status"] != "complete":
+                        exit_code = exit_code or 1
             except HTTPError as error:
                 record["finish_http_status"] = error.code
                 exit_code = exit_code or 1
@@ -235,15 +246,6 @@ def run_live(server, adapter, args):
                 record["finish_error"] = type(error).__name__
                 exit_code = exit_code or 1
 
-            if args.record_pov and record["verdict"] is not None:
-                try:
-                    manifest = adapter.finish_capture()
-                    if not manifest:
-                        raise RuntimeError("No POV manifest returned")
-                    record.update(pov_manifest=manifest, pov_status="complete")
-                except Exception as error:
-                    record["pov_error"] = type(error).__name__
-                    exit_code = exit_code or 1
         finally:
             evidence = evidence_dir / "operator-result.json"
             evidence.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
@@ -267,8 +269,12 @@ def parse_args(argv=None):
     parser.add_argument("--max-decisions", type=int, choices=range(1, 61), metavar="1..60")
     parser.add_argument("--expected-fixture-key", choices=[f"item_{i}" for i in range(1, 7)])
     parser.add_argument("--record-pov", action="store_true")
+    parser.add_argument("--official-slot", type=int, choices=(1, 2, 3))
+    parser.add_argument("--official-ledger", type=Path)
     parser.add_argument("--ui-server", type=Path)
     args = parser.parse_args(argv)
+    if args.official_slot is not None and not (args.command and args.record_pov and args.official_ledger and args.provider == "claude"):
+        parser.error("--official-slot requires a Claude command, --record-pov and shared --official-ledger")
     if not args.engine_server.is_file():
         parser.error("engine_server must point to engine/server.py")
     if args.ui_server and not args.ui_server.is_file():

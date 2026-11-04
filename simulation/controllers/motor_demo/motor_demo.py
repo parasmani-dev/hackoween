@@ -23,10 +23,10 @@ class RoverDrive:
         self.command(0, 0)
 
     def step(self):
-        if self.robot.step(self.timestep) == -1:
-            raise RuntimeError("Webots stopped during an action")
         if self.after_step is not None:
             self.after_step()
+        if self.robot.step(self.timestep) == -1:
+            raise RuntimeError("Webots stopped during an action")
         if self.capture_step is not None:
             self.capture_step()
 
@@ -37,8 +37,8 @@ class RoverDrive:
 
     def stop(self):
         self.command(0, 0)
-        for _ in range(5):
-            self.step()
+        # Apply the brake without allowing five extra coasting steps.
+        self.node.setVelocity([0.0] * 6)
 
     def heading(self):
         orientation = self.node.getOrientation()
@@ -58,6 +58,8 @@ class RoverDrive:
         self.command(direction * speed, 0)
         try:
             for _ in range(math.ceil((abs(distance) / speed + 3) / self.dt)):
+                remaining = abs(distance) - best
+                self.command(direction * min(speed, max(0.01, remaining / (2 * self.dt))), 0)
                 self.step()
                 x, y, _ = self.node.getPosition()
                 progress = direction * ((x - start_x) * math.cos(heading) + (y - start_y) * math.sin(heading))
@@ -66,7 +68,7 @@ class RoverDrive:
                     return False
                 if not touching:
                     leave_contact = False
-                if progress >= abs(distance) and not touching:
+                if progress >= abs(distance) - 0.002 and not touching:
                     return True
                 if progress > best + 0.005:
                     best, stalled = progress, 0.0
@@ -90,13 +92,17 @@ class RoverDrive:
                 error = target - traveled
                 if abs(error) <= math.radians(2):
                     return True
-                rate = math.copysign(min(math.pi / 2, max(0.22, abs(error) * 3)), error)
+                # Four-wheel skid steering needs feedback for actual chassis yaw.
+                measured_rate = (delta / self.dt) if traveled else 0.0
+                desired_rate = math.copysign(min(math.pi / 2, abs(error) / self.dt), error)
+                rate = 1.45 * desired_rate + 0.5 * (desired_rate - measured_rate)
                 self.command(0, rate)
                 self.step()
                 if self.contact():
                     return False
                 heading = self.heading()
-                traveled += math.remainder(heading - previous, 2 * math.pi)
+                delta = math.remainder(heading - previous, 2 * math.pi)
+                traveled += delta
                 previous = heading
             raise RuntimeError("Turn timed out")
         finally:
