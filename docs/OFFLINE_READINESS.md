@@ -21,7 +21,7 @@ and restores previous overrides on exit. The HTTP fixture always disables the
 dashboard scripted driver, regardless of the parent shell setting. The scripted
 agent stage requires a private pass verdict; Done alone is not success. The live
 launcher continues preserving scored failures and their captures.
-It runs 43 Python regressions, actual FFmpeg packaging, physical wheel/stall checks,
+It runs 47 Python regressions, actual FFmpeg packaging, physical wheel/stall checks,
 and full Webots HTTP/UI fetch, repeated resets, collision recovery, calibrated
 motion, frozen non-motion operations and scripted-agent native capture.
 Logs are local under runs/. Keep logs private; link a sanitized result in #5.
@@ -47,8 +47,7 @@ this PR does not change repository settings.
 
 ## Keep performance measurements separate
 
-- Browser preview (PR #19): at most 20 FPS; operator display only, outside main
-  when this branch was created. Do not count it as agent camera or native capture.
+- Browser preview (PR #19): at most 20 FPS; operator display only; merged before this integration. Do not count it as agent camera or native capture.
 - Capture wall throughput: frames produced per wall second during motion, including
   capture overhead. It does not measure graphical Webots viewport refresh.
 - Simulation cadence: fixed physics step; 32 ms means 31.25 steps per simulated

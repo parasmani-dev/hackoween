@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { readPreview } from "./preview.mjs";
 
 const pages = {
   "/": ["index.html", "text/html; charset=utf-8"],
@@ -9,6 +10,7 @@ const pages = {
 };
 const port = Number(process.env.ROVER_UI_PORT ?? 8090);
 const enginePort = Number(process.env.ROVER_ENGINE_PORT ?? 8080);
+const previewFile = process.env.ROVER_PREVIEW_FILE;
 const offline = process.env.ROVER_OFFLINE_DEMO === "1";
 const demoCommand = "Fetch the red sphere and drop it in the green zone";
 let demoStatus = "idle";
@@ -29,9 +31,17 @@ createServer(async (request, response) => {
     response.end(readFileSync(new URL(file, import.meta.url)));
     return;
   }
+  if (path === "/preview" && previewFile) {
+    try {
+      const frame = readPreview(previewFile);
+      response.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "no-store" });
+      response.end(frame);
+    } catch { response.writeHead(503).end(); }
+    return;
+  }
   if (path === "/offline-demo") {
     response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-    response.end(JSON.stringify({ enabled: offline, command: demoCommand, status: demoStatus }));
+    response.end(JSON.stringify({ enabled: offline, preview: Boolean(previewFile), command: demoCommand, status: demoStatus }));
     return;
   }
   if (!lifecycle && path !== "/state" && path !== "/look") {
