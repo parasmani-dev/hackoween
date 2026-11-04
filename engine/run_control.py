@@ -113,15 +113,16 @@ class RunControl:
 
     def advance(self, method, result):
         success = result["success"]
-        if method == "move":
-            if self.phase == "Blocked" and (result["collided"] or not success):
+        if method in ("move", "turn"):
+            contact = result["collided"] if method == "move" else not success
+            if self.phase == "Blocked" and (contact or not success):
                 self.retry_count += 1
                 if self.retry_count == 3:
                     self.phase = "Done"
                     self.outcome = "fail_collision"
-            elif result["collided"]:
+            elif contact:
                 self.phase = "Blocked"
-            elif success:
+            elif method == "move" and success:
                 self.retry_count = 0
                 self.phase = "Carry" if self.holding else "Go to object"
         elif method == "pickup" and success:
