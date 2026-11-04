@@ -11,7 +11,8 @@ class RunConflict(Exception):
 class RunControl:
     def __init__(self, adapter):
         self.adapter = adapter
-        self.lock = Lock()
+        self.adapter_lock = Lock()
+        self.mutation_lock = Lock()
         self.clear()
 
     def clear(self):
@@ -24,7 +25,7 @@ class RunControl:
         self.needs_reset = False
 
     def state(self):
-        with self.lock:
+        with self.adapter_lock:
             return {
                 **self.adapter.state(),
                 "state": self.phase,
@@ -33,34 +34,38 @@ class RunControl:
             }
 
     def look(self):
-        with self.lock:
+        with self.adapter_lock:
             return self.adapter.look()
 
     def execute(self, method, args, response_fields):
-        if not self.lock.acquire(blocking=False):
+        if not self.mutation_lock.acquire(blocking=False):
             raise RunConflict("mutation_in_progress")
         try:
-            if method == "finish":
-                return self.finish()
-            if method == "reset" or method == "start":
-                return self.lifecycle(method, args)
-            if self.needs_reset:
-                raise RunConflict("reset_required")
-            if self.phase in ("Idle", "Done"):
-                raise RunConflict("no_active_run")
-
-            try:
-                result = getattr(self.adapter, method)(*args)
-                payload = {field: result[field] for field in response_fields}
-                if any(type(value) is not bool for value in payload.values()):
-                    raise ValueError("Action results must contain boolean flags")
-                self.advance(method, payload)
-            except Exception:
-                self.needs_reset = True
-                raise
-            return payload
+            with self.adapter_lock:
+                return self._execute(method, args, response_fields)
         finally:
-            self.lock.release()
+            self.mutation_lock.release()
+
+    def _execute(self, method, args, response_fields):
+        if method == "finish":
+            return self.finish()
+        if method in ("reset", "start"):
+            return self.lifecycle(method, args)
+        if self.needs_reset:
+            raise RunConflict("reset_required")
+        if self.phase in ("Idle", "Done"):
+            raise RunConflict("no_active_run")
+
+        try:
+            result = getattr(self.adapter, method)(*args)
+            payload = {field: result[field] for field in response_fields}
+            if any(type(value) is not bool for value in payload.values()):
+                raise ValueError("Action results must contain boolean flags")
+            self.advance(method, payload)
+        except Exception:
+            self.needs_reset = True
+            raise
+        return payload
 
     def lifecycle(self, method, args):
         if method == "start":
