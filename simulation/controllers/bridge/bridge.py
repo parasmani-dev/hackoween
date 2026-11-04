@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 
 from controller import Supervisor
 from PIL import Image
@@ -26,6 +28,7 @@ class Scene:
         self.camera.enable(self.drive.timestep)
         self.fixture_names = [f"ITEM_{index}" for index in range(1, 7)]
         self.objects = [robot.getFromDef(name) for name in self.fixture_names]
+        self.floor_heights = [node.getPosition()[2] for node in self.objects]
         self.fixture_nodes = [node.exportString() for node in self.objects]
         self.world_children = robot.getRoot().getField("children")
         self.zone = robot.getFromDef("DROP_ZONE").getPosition()
@@ -39,12 +42,16 @@ class Scene:
     def reset(self):
         if self.capture is not None:
             self.drive.capture_step = None
+            self.writer.shutdown(wait=True, cancel_futures=True)
             self.capture = None
         self.held = None
         self._delivered_fixture_key = None
         self.status = "Idle"
         self.drive.after_step = None
         self.drive.command(0, 0)
+        # Flush pending attachment updates before removing their physics bodies.
+        # Reset is outside the active run/capture.
+        self.drive.step()
         # Restoring transforms can leave released bodies with residual motion.
         # Rebuild the six fixture bodies from their original scene definitions.
         for node in self.objects:
@@ -83,19 +90,30 @@ class Scene:
         self.capture = (root, self.drive.robot.getTime(), {
             "version": 1, "run_id": run_id, "command": command, "frames": []
         })
+        self.writer = ThreadPoolExecutor(max_workers=2)
+        self.pending = deque()
         self.record_frame()
         self.drive.capture_step = self.record_frame
         return run_id
 
-    def record_frame(self):
+    @staticmethod
+    def save_frame(raw, size, path):
+        Image.frombytes("RGB", size, raw, "raw", "BGRX").save(path, compress_level=1)
+
+    def record_frame(self, force=False):
         root, start_time, manifest = self.capture
         frames = manifest["frames"]
         sim_time_ms = round((self.drive.robot.getTime() - start_time) * 1000)
-        if frames and frames[-1]["sim_time_ms"] == sim_time_ms:
+        if not force and frames and frames[-1]["sim_time_ms"] == sim_time_ms:
             return
         relative = f"frames/{len(frames):06d}.png"
         wall_time = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-        self.camera_pixels().save(root / relative, compress_level=1)
+        # Copy camera memory on the Webots thread; workers only encode immutable bytes.
+        raw = bytes(self.camera.getImage())
+        if len(self.pending) >= 8:
+            self.pending.popleft().result()
+        self.pending.append(self.writer.submit(self.save_frame, raw,
+                            (self.camera.getWidth(), self.camera.getHeight()), root / relative))
         frames.append({
             "path": relative,
             "sim_time_ms": sim_time_ms,
@@ -108,6 +126,11 @@ class Scene:
         root, _, manifest = self.capture
         self.drive.capture_step = None
         self.record_frame()
+        try:
+            for future in self.pending:
+                future.result()
+        finally:
+            self.writer.shutdown(wait=True)
         pending = root / "capture.tmp"
         pending.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
         path = root / "capture.json"
@@ -149,10 +172,10 @@ class Scene:
         if not candidates:
             return dict(success=False)
         _, self.held, height = min(candidates, key=lambda candidate: candidate[0])
-        self.carry_height = height + 0.15
+        # Carry at floor height: snap attachment requires no grasp/lift physics.
+        self.carry_height = self.floor_heights[self.objects.index(self.held)] + 0.006
         self.drive.after_step = self.carry
-        self.carry()
-        self.drive.step()
+        # Apply attachment on the next commanded motion, not a physics tick here.
         self.status = "Carry"
         return dict(success=True)
 
@@ -163,8 +186,9 @@ class Scene:
         released = self.held
         self.held = None
         self.drive.after_step = None
-        for _ in range(math.ceil(1.5 / self.drive.dt)):
-            self.drive.step()
+        # Release where the attached object already rests. No settling animation,
+        # no relocation toward the zone, and no physics clock advancement.
+        released.setVelocity([0.0] * 6)
         x, y, _ = released.getPosition()
         in_zone = abs(x - self.zone[0]) <= 0.65 and abs(y - self.zone[1]) <= 0.65
         if in_zone:
