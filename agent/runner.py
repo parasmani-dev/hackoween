@@ -143,12 +143,18 @@ def run_command(
                     "recent_actions": list(history),
                 }, separators=(",", ":"))
                 decisions = step
+                system = _navigation_prompt(history)
                 decision = claude.decide(
                     [{"role": "user", "content": [{"type": "text", "text": context}, frame]}],
-                    system=_navigation_prompt(history),
+                    system=system,
                 )
                 for key, count in decision.usage.items():
                     usage[key] = usage.get(key, 0) + count
+
+                if (system != SYSTEM_PROMPT and decision.name == "turn"
+                        and decision.args["degrees"] * history[-1]["args"]["degrees"] < 0):
+                    # Keep the same observation and count the rejected proposal against the cap.
+                    continue
 
                 timestamp = datetime.now(timezone.utc).isoformat()
                 try:

@@ -95,6 +95,21 @@ class RunnerTests(unittest.TestCase):
             with Image.open(BytesIO(frame)) as image:
                 self.assertEqual((image.format, image.size), ("PNG", (640, 480)))
 
+    def test_repeated_reversal_is_not_dispatched(self):
+        self.claude.decide.side_effect = [
+            Decision("turn", {"degrees": angle}, {"input_tokens": 1})
+            for angle in (-15, 10, -10, 15, 15)
+        ] + [Decision("move", {"distance": 0.2}, {"input_tokens": 1})]
+        result = self.run_rover(max_decisions=6)
+        self.assertEqual(result.decisions, 6)
+        self.assertEqual(result.usage["input_tokens"], 6)
+        self.assertEqual([row["step"] for row in self.records(result)], [1, 2, 3, 6])
+        self.assertEqual(self.engine.look.call_count, 5)
+        calls = self.claude.decide.call_args_list
+        frames = [call.args[0][0]["content"][1] for call in calls[3:]]
+        self.assertEqual(frames, [frames[0]] * 3)
+        self.engine.execute.assert_called_with("move", {"distance": 0.2})
+
     def test_decision_cap_compact_history_and_unique_runs(self):
         first = self.run_rover()
         self.assertEqual((first.status, first.decisions), ("decision_limit", 60))
