@@ -106,9 +106,25 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual([row["step"] for row in self.records(result)], [1, 2, 3, 6])
         self.assertEqual(self.engine.look.call_count, 5)
         calls = self.claude.decide.call_args_list
+        self.assertIn("rejected before dispatch", calls[4].kwargs["system"])
         frames = [call.args[0][0]["content"][1] for call in calls[3:]]
         self.assertEqual(frames, [frames[0]] * 3)
         self.engine.execute.assert_called_with("move", {"distance": 0.2})
+
+    def test_repeated_rejections_stop_early(self):
+        self.claude.decide.side_effect = [
+            Decision("turn", {"degrees": angle}, {})
+            for angle in (-15, 10, -10, 15, 15, 15)
+        ]
+        result = self.run_rover()
+        self.assertEqual((result.status, result.decisions), ("navigation_stalled", 6))
+        self.assertEqual(self.engine.execute.call_count, 3)
+
+    def test_same_direction_scan_is_bounded(self):
+        self.claude.decide.return_value = Decision("turn", {"degrees": 45}, {})
+        result = self.run_rover()
+        self.assertEqual((result.status, result.decisions), ("navigation_stalled", 15))
+        self.assertEqual(self.engine.execute.call_count, 12)
 
     def test_decision_cap_compact_history_and_unique_runs(self):
         first = self.run_rover()

@@ -17,6 +17,8 @@ from .openai_client import OpenAIClient, OpenAIError
 
 
 MAX_DECISIONS = 60
+MAX_REJECTED_TURNS = 3
+MAX_TURNS_WITHOUT_PROGRESS = 12
 SYSTEM_PROMPT = (
     "Control the rover to complete the operator's fetch command. Choose one action per decision. "
     "Use the latest front camera image as your only source for object and zone locations. "
@@ -127,6 +129,8 @@ def run_command(
     usage = {"input_tokens": 0, "output_tokens": 0}
     decisions = 0
     status = "decision_limit"
+    rejected_turns = 0
+    turns_without_progress = 0
 
     try:
         with (run_dir / "steps.jsonl").open("x", encoding="utf-8") as journal:
@@ -144,6 +148,12 @@ def run_command(
                 }, separators=(",", ":"))
                 decisions = step
                 system = _navigation_prompt(history)
+                alternating_turns = system != SYSTEM_PROMPT
+                if rejected_turns:
+                    system += (
+                        " The previous turn proposal was rejected before dispatch. "
+                        "The rover has not moved. Choose a different action using the same image."
+                    )
                 decision = claude.decide(
                     [{"role": "user", "content": [{"type": "text", "text": context}, frame]}],
                     system=system,
@@ -151,11 +161,19 @@ def run_command(
                 for key, count in decision.usage.items():
                     usage[key] = usage.get(key, 0) + count
 
-                if (system != SYSTEM_PROMPT and decision.name == "turn"
-                        and decision.args["degrees"] * history[-1]["args"]["degrees"] < 0):
+                if decision.name == "turn" and (
+                    turns_without_progress >= MAX_TURNS_WITHOUT_PROGRESS
+                    or (alternating_turns
+                        and decision.args["degrees"] * history[-1]["args"]["degrees"] < 0)
+                ):
                     # Keep the same observation and count the rejected proposal against the cap.
+                    rejected_turns += 1
+                    if rejected_turns >= MAX_REJECTED_TURNS:
+                        status = "navigation_stalled"
+                        break
                     continue
 
+                rejected_turns = 0
                 timestamp = datetime.now(timezone.utc).isoformat()
                 try:
                     result = engine.execute(decision.name, decision.args)
@@ -170,6 +188,12 @@ def run_command(
                 if status == "action_uncertain":
                     break
                 history.append(action)
+                if decision.name == "turn":
+                    turns_without_progress += 1
+                elif result["success"] and (
+                    decision.name != "move" or decision.args["distance"] != 0
+                ):
+                    turns_without_progress = 0
                 if decision.name in ("move", "turn"):
                     frame_name, frame = _capture(engine, run_dir, step)
                 state = engine.state()
