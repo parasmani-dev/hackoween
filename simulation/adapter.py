@@ -47,5 +47,11 @@ class WebotsAdapter:
     def reset(self):
         self._call("reset")
 
+    def start_capture(self, command):
+        return self._call("start_capture", command)
+
+    def finish_capture(self):
+        return self._call("finish_capture")
+
     def close(self):
         """Each request owns and closes its own connection."""

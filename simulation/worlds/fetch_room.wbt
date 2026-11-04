@@ -221,8 +221,8 @@ DEF ROVER Robot {
       translation 0.22 0 0.5
       rotation 0 1 0 0.174533
       name "front_camera"
-      width 640
-      height 480
+      width 1280
+      height 960
       fieldOfView 1.570796
     }
   ]

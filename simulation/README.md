@@ -53,3 +53,18 @@ Pass Vernit's server and Archit's checkout to the same launcher. Set the selecte
 ```
 
 The launcher starts the operator run and agent, then keeps request audits, frame logs, and the final camera image in a unique attempt directory under runs/live. Pass -ExpectedFixtureKey for a known test fixture. The launcher calls the operator finish endpoint after the agent exits and saves the verdict separately in operator-result.json. Keep that file and request audits local.
+
+
+## Native operator POV capture
+
+Pass -RecordPov to the live launcher to record from HTTP Start through Finish.
+The same front camera renders at 1280×960 and the bridge resizes the agent
+JPEG to 640×480. Install Pillow in the Python environment Webots uses.
+
+The scripted HTTP check captures a full fixture automatically and prints its
+manifest path. Each capture is stored separately under the temporary Webots
+project's pov/<run-id> directory, with numbered native PNGs and capture.json.
+The manifest records the command, relative frame paths, elapsed simulation
+milliseconds, and UTC wall times. Reset abandons an active capture without
+publishing a manifest. Completed captures are preserved. The live launcher
+writes the manifest path in its private operator-result.json.

@@ -7,10 +7,13 @@ import math
 import os
 import socket
 import sys
-import tempfile
+from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
+from uuid import uuid4
 
 from controller import Supervisor
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "motor_demo"))
 from motor_demo import RoverDrive
@@ -28,10 +31,14 @@ class Scene:
             for node in [self.drive.node, *self.objects]
         ]
         self.held = None
+        self.capture = None
         self.status = "Idle"
         self.reset()
 
     def reset(self):
+        if self.capture is not None:
+            self.drive.capture_step = None
+            self.capture = None
         self.held = None
         self._delivered_fixture_key = None
         self.status = "Idle"
@@ -48,12 +55,57 @@ class Scene:
         return dict(state=self.status, x=x, y=y, heading=-math.degrees(self.drive.heading()),
                     holding=self.held is not None, retry_count=0)
 
+    def camera_pixels(self):
+        size = (self.camera.getWidth(), self.camera.getHeight())
+        return Image.frombytes("RGB", size, self.camera.getImage(), "raw", "BGRX")
+
     def look(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "frame.jpg"
-            if self.camera.saveImage(str(path), 90) != 0:
-                raise RuntimeError("Camera capture failed")
-            return base64.b64encode(path.read_bytes()).decode("ascii")
+        with BytesIO() as stream:
+            self.camera_pixels().resize((640, 480), Image.Resampling.LANCZOS).save(
+                stream, "JPEG", quality=90
+            )
+            return base64.b64encode(stream.getvalue()).decode("ascii")
+
+    def start_capture(self, command):
+        if self.capture is not None:
+            raise RuntimeError("POV capture already active")
+        run_id = uuid4().hex
+        root = Path(__file__).resolve().parents[2] / "pov" / run_id
+        (root / "frames").mkdir(parents=True)
+        self.capture = (root, self.drive.robot.getTime(), {
+            "version": 1, "run_id": run_id, "command": command, "frames": []
+        })
+        self.record_frame()
+        self.drive.capture_step = self.record_frame
+        return run_id
+
+    def record_frame(self):
+        root, start_time, manifest = self.capture
+        frames = manifest["frames"]
+        sim_time_ms = round((self.drive.robot.getTime() - start_time) * 1000)
+        if frames and frames[-1]["sim_time_ms"] == sim_time_ms:
+            return
+        relative = f"frames/{len(frames):06d}.png"
+        wall_time = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        self.camera_pixels().save(root / relative, compress_level=1)
+        frames.append({
+            "path": relative,
+            "sim_time_ms": sim_time_ms,
+            "wall_time_utc": wall_time,
+        })
+
+    def finish_capture(self):
+        if self.capture is None:
+            return None
+        root, _, manifest = self.capture
+        self.drive.capture_step = None
+        self.record_frame()
+        pending = root / "capture.tmp"
+        pending.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        path = root / "capture.json"
+        pending.replace(path)
+        self.capture = None
+        return str(path)
 
     def move(self, distance):
         approach_heading = self.drive.heading()
@@ -118,7 +170,8 @@ class Scene:
 
 def serve(scene, port):
     handlers = {name: getattr(scene, name) for name in
-                ("state", "look", "move", "turn", "pickup", "drop", "reset", "delivered_fixture_key")}
+                ("state", "look", "move", "turn", "pickup", "drop", "reset", "delivered_fixture_key",
+                 "start_capture", "finish_capture")}
     with socket.create_server(("127.0.0.1", port)) as listener:
         logging.info("Webots bridge listening on loopback port %s", port)
         while True:
@@ -134,6 +187,9 @@ def serve(scene, port):
                         bound = 10 if method == "move" else 360
                         if len(args) != 1 or type(args[0]) not in (float, int) or not abs(args[0]) <= bound:
                             raise ValueError("Invalid motion argument")
+                    elif method == "start_capture":
+                        if len(args) != 1 or not isinstance(args[0], str) or not args[0].strip():
+                            raise ValueError("Expected a capture command")
                     elif args:
                         raise ValueError("Unexpected arguments")
                     response = {"ok": True, "result": handlers[method](*args)}

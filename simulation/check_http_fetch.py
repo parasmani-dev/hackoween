@@ -81,7 +81,21 @@ def check(server, adapter):
         assert state()["state"] == "Done" and not state()["holding"]
         assert adapter.delivered_fixture_key() == "item_1"
 
+    capture_id = adapter.start_capture(command["command"])
     fetch()
+    manifest_path = Path(adapter.finish_capture())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["run_id"] == capture_id and manifest["version"] == 1
+    assert manifest["command"] == command["command"]
+    frames = manifest["frames"]
+    assert len(frames) > 20 and frames[0]["sim_time_ms"] == 0
+    assert all(b["sim_time_ms"] > a["sim_time_ms"] for a, b in zip(frames, frames[1:]))
+    for frame in (frames[0], frames[len(frames) // 2], frames[-1]):
+        with Image.open(manifest_path.parent / frame["path"]) as image:
+            assert image.size == (1280, 960) and image.format == "PNG"
+            image.load()
+    assert adapter.finish_capture() is None
+    print(f"PASS: {len(frames)} native POV frames with a private manifest at {manifest_path}")
     assert call("/run/finish", {"reason": "abandoned"}) == {"state": "Done", "outcome": "pass"}
     print("PASS: full HTTP fetch and private pass verdict")
     assert call("/run/reset", {}) == {"state": "Idle"}
@@ -141,6 +155,8 @@ def run_live(server, adapter, args):
         start["expected_fixture_key"] = args.expected_fixture_key
     if operator_call("/run/start", start)["state"] != "Locate":
         raise RuntimeError("Engine did not start the operator run")
+    if args.record_pov:
+        adapter.start_capture(args.command)
 
     status, exit_code = "abandoned", 130
     try:
@@ -164,6 +180,8 @@ def run_live(server, adapter, args):
             record["expected_fixture_key"] = args.expected_fixture_key
         try:
             record["verdict"] = operator_call("/run/finish", {"reason": reason})
+            if args.record_pov:
+                record["pov_manifest"] = adapter.finish_capture()
         except HTTPError as error:
             with error:
                 record["finish_http_status"] = error.code
@@ -186,6 +204,7 @@ def main():
     parser.add_argument("--provider", choices=("claude", "openai"), default="claude")
     parser.add_argument("--command")
     parser.add_argument("--expected-fixture-key", choices=[f"item_{i}" for i in range(1, 7)])
+    parser.add_argument("--record-pov", action="store_true")
     args = parser.parse_args()
     if args.command:
         required = ("OPENAI_API_KEY", "OPENAI_MODEL") if args.provider == "openai" else (

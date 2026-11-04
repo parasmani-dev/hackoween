@@ -1,6 +1,5 @@
 param(
-    [Parameter(Mandatory)]
-    [string]$WebotsExe
+    [string]$WebotsExe = (Join-Path (Split-Path -Parent $PSScriptRoot) 'runs/webots/msys64/mingw64/bin/webots.exe')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,7 +20,7 @@ camera.enable(step)
 for _ in range(8):
     if robot.step(step) == -1:
         raise RuntimeError("Webots stopped before camera capture")
-if (camera.getWidth(), camera.getHeight()) != (640, 480):
+if (camera.getWidth(), camera.getHeight()) != (1280, 960):
     raise RuntimeError("Unexpected camera dimensions")
 if not camera.getImage() or camera.saveImage("frame.png", 100) != 0:
     raise RuntimeError("Camera capture failed")
@@ -39,7 +38,7 @@ if (-not $process.WaitForExit(30000)) {
     Stop-Process -InputObject $process -ErrorAction SilentlyContinue
     throw "Webots timed out. Logs are in $output"
 }
-if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $frame)) {
+if (($null -ne $process.ExitCode -and $process.ExitCode -ne 0) -or -not (Test-Path -LiteralPath $frame)) {
     throw "Webots camera check failed. Logs are in $output"
 }
-Write-Output "640x480 camera capture saved to $frame"
+Write-Output "1280x960 camera capture saved to $frame"
