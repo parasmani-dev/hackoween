@@ -13,7 +13,7 @@ foreach ($name in @('ffmpeg.exe','ffprobe.exe')) {
 }
 $oldPath = $env:PATH
 $secrets = @{}
-foreach ($name in @('ANTHROPIC_API_KEY','OPENAI_API_KEY')) {
+foreach ($name in @('ANTHROPIC_API_KEY','OPENAI_API_KEY','FFMPEG_PATH','FFPROBE_PATH')) {
     $secrets[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
     [Environment]::SetEnvironmentVariable($name, $null, 'Process')
 }
@@ -22,9 +22,11 @@ $log = Join-Path $root ('runs/offline-preflight-' + [guid]::NewGuid().ToString('
 New-Item -ItemType Directory -Force (Join-Path $root 'runs') | Out-Null
 try {
     $env:PATH = "$ffmpeg;$oldPath"
+    $env:FFMPEG_PATH = Join-Path $ffmpeg "ffmpeg.exe"
+    $env:FFPROBE_PATH = Join-Path $ffmpeg "ffprobe.exe"
     Start-Transcript -Path $log | Out-Null
     git rev-parse HEAD
-    python -B -m unittest agent.test_clients agent.test_runner engine.test_run_control simulation.test_launcher simulation.test_capture simulation.test_provenance simulation.test_motor -v
+    python -B -m unittest agent.test_clients agent.test_runner engine.test_run_control simulation.test_launcher simulation.test_capture simulation.test_provenance simulation.test_motor simulation.test_offline_preflight -v
     if ($LASTEXITCODE -ne 0) { throw 'Python regressions failed' }
     node --test recording/package-submission.test.mjs
     if ($LASTEXITCODE -ne 0) { throw 'Recording regressions failed' }

@@ -16,7 +16,12 @@ use Node.js, Webots R2025a and a complete FFmpeg/ffprobe distribution, then run:
 The preflight removes provider keys from its child environment and restores them
 on exit, accepts no model command or official slot, and invokes the scripted-agent
 check with both provider transports blocked. It fails immediately on a failed stage.
-It runs 39 Python regressions, actual FFmpeg packaging, physical wheel/stall checks,
+It pins FFMPEG_PATH and FFPROBE_PATH to the validated directory for child tests
+and restores previous overrides on exit. The HTTP fixture always disables the
+dashboard scripted driver, regardless of the parent shell setting. The scripted
+agent stage requires a private pass verdict; Done alone is not success. The live
+launcher continues preserving scored failures and their captures.
+It runs 43 Python regressions, actual FFmpeg packaging, physical wheel/stall checks,
 and full Webots HTTP/UI fetch, repeated resets, collision recovery, calibrated
 motion, frozen non-motion operations and scripted-agent native capture.
 Logs are local under runs/. Keep logs private; link a sanitized result in #5.

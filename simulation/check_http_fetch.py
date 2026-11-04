@@ -255,6 +255,12 @@ def run_live(server, adapter, args):
         (evidence_dir / "final-camera.jpg").write_bytes(adapter.look())
     if exit_code:
         raise SystemExit(exit_code)
+    return record
+
+
+def fixture_ui_environment(engine_port):
+    return {**os.environ, "ROVER_UI_PORT": "18090",
+            "ROVER_ENGINE_PORT": str(engine_port), "ROVER_OFFLINE_DEMO": "0"}
 
 
 def parse_args(argv=None):
@@ -338,7 +344,7 @@ def main():
                 ui_root = "http://127.0.0.1:18090"
                 ui_process = subprocess.Popen(
                     ["node", str(args.ui_server.resolve())],
-                    env={**os.environ, "ROVER_UI_PORT": "18090", "ROVER_ENGINE_PORT": str(args.engine_port)},
+                    env=fixture_ui_environment(args.engine_port),
                 )
                 for _ in range(50):
                     if ui_process.poll() is not None:
