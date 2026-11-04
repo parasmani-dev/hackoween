@@ -142,15 +142,38 @@ def check(server, adapter, ui_root=None):
     print("PASS: decision-budget finish through HTTP")
 
 
+def finish_run(operator_call, reason):
+    deadline = time.monotonic() + 35
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Operator finish deadline expired")
+        try:
+            return operator_call("/run/finish", {"reason": reason}, timeout=remaining)
+        except HTTPError as error:
+            with error:
+                if error.code != 409:
+                    raise
+                try:
+                    busy = json.load(error) == {"error": "mutation_in_progress"}
+                except (ValueError, OSError):
+                    busy = False
+                if not busy:
+                    raise
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(min(0.25, remaining))
+
+
 def run_live(server, adapter, args):
     root = f"http://127.0.0.1:{server.server_port}"
     output_root = Path("runs/live").resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     evidence_dir = Path(mkdtemp(prefix="attempt-", dir=output_root))
 
-    def operator_call(route, payload):
+    def operator_call(route, payload, *, timeout=35):
         request = Request(root + route, data=json.dumps(payload).encode())
-        with urlopen(request, timeout=35) as response:
+        with urlopen(request, timeout=timeout) as response:
             return json.load(response)
 
     start = {"command": args.command}
@@ -158,8 +181,7 @@ def run_live(server, adapter, args):
         start["expected_fixture_key"] = args.expected_fixture_key
     if operator_call("/run/start", start)["state"] != "Locate":
         raise RuntimeError("Engine did not start the operator run")
-    if args.record_pov:
-        adapter.start_capture(args.command)
+    capture_id = adapter.start_capture(args.command) if args.record_pov else None
 
     status, exit_code = "abandoned", 130
     try:
@@ -181,20 +203,36 @@ def run_live(server, adapter, args):
         record = {"agent_status": status, "finish_reason": reason, "verdict": None}
         if args.expected_fixture_key:
             record["expected_fixture_key"] = args.expected_fixture_key
+        if args.record_pov:
+            record.update(pov_capture_id=capture_id, pov_status="incomplete")
         try:
-            record["verdict"] = operator_call("/run/finish", {"reason": reason})
-            if args.record_pov:
-                record["pov_manifest"] = adapter.finish_capture()
-        except HTTPError as error:
-            with error:
+            try:
+                verdict = finish_run(operator_call, reason)
+                if verdict.get("state") != "Done":
+                    raise ValueError("Engine did not confirm terminal state")
+                record["verdict"] = verdict
+            except HTTPError as error:
                 record["finish_http_status"] = error.code
-            print(f"Operator finish returned HTTP {error.code}. No rover action was replayed.")
-            exit_code = exit_code or 1
+                exit_code = exit_code or 1
+            except (OSError, ValueError, AttributeError) as error:
+                record["finish_error"] = type(error).__name__
+                exit_code = exit_code or 1
+
+            if args.record_pov and record["verdict"] is not None:
+                try:
+                    manifest = adapter.finish_capture()
+                    if not manifest:
+                        raise RuntimeError("No POV manifest returned")
+                    record.update(pov_manifest=manifest, pov_status="complete")
+                except Exception as error:
+                    record["pov_error"] = type(error).__name__
+                    exit_code = exit_code or 1
         finally:
             evidence = evidence_dir / "operator-result.json"
             evidence.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
             print(f"Operator result: {evidence}")
-    (evidence_dir / "final-camera.jpg").write_bytes(adapter.look())
+    if record["verdict"] is not None:
+        (evidence_dir / "final-camera.jpg").write_bytes(adapter.look())
     if exit_code:
         raise SystemExit(exit_code)
 
