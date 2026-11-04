@@ -51,6 +51,19 @@ class RunnerTests(unittest.TestCase):
             for line in (result.run_dir / "steps.jsonl").read_text(encoding="utf-8").splitlines()
         ]
 
+    def test_alternating_turns_trigger_progress_guidance_until_rover_moves(self):
+        self.claude.decide.side_effect = [
+            Decision("turn", {"degrees": angle}, {}) for angle in (10, -10, 10)
+        ] + [Decision("move", {"distance": 0.2}, {}), Decision("pickup", {}, {})]
+        result = self.run_rover(max_decisions=5)
+        prompts = [call.kwargs["system"] for call in self.claude.decide.call_args_list]
+        self.assertTrue(all("Stop fine alignment" not in prompt for prompt in prompts[:3]))
+        self.assertIn("Stop fine alignment", prompts[3])
+        self.assertIn("If the current image shows clear floor", prompts[3])
+        self.assertEqual(prompts[0], prompts[4])
+        self.assertEqual([row["tool"] for row in self.records(result)],
+                         ["turn", "turn", "turn", "move", "pickup"])
+
     def test_camera_refresh_reuse_and_artifacts(self):
         self.engine.look.side_effect = [jpeg("red"), jpeg("green"), jpeg("blue")]
         self.engine.state.side_effect = [

@@ -78,6 +78,26 @@ def _terminal_status(state):
     return None
 
 
+def _navigation_prompt(history):
+    turns = []
+    for action in reversed(history):
+        if action["tool"] != "turn" or not action["result"]["success"]:
+            break
+        turns.append(action["args"]["degrees"])
+        if len(turns) == 3:
+            break
+    if len(turns) == 3 and turns[0] * turns[1] < 0 and turns[1] * turns[2] < 0:
+        return SYSTEM_PROMPT + (
+            " Your last three successful turns alternated direction without translating. "
+            "Stop fine alignment. If the target is close enough and aligned, pick up now. "
+            "If the current image shows clear floor toward the target, move forward 0.2 metres "
+            "and reassess. If the path is blocked, use the collision recovery instructions. "
+            "If the target is out of view and a move is unsafe, scan in the same direction "
+            "as the last turn. Do not immediately reverse the last turn again."
+        )
+    return SYSTEM_PROMPT
+
+
 def run_command(
     command, *, engine=None, claude=None, output_root="runs",
     max_decisions=MAX_DECISIONS, audit_requests=False, provider="claude",
@@ -125,7 +145,7 @@ def run_command(
                 decisions = step
                 decision = claude.decide(
                     [{"role": "user", "content": [{"type": "text", "text": context}, frame]}],
-                    system=SYSTEM_PROMPT,
+                    system=_navigation_prompt(history),
                 )
                 for key, count in decision.usage.items():
                     usage[key] = usage.get(key, 0) + count
