@@ -15,6 +15,7 @@ class RoverDrive:
         self.node = robot.getSelf()
         self.timestep = int(robot.getBasicTimeStep())
         self.dt = self.timestep / 1000
+        self.after_step = None
         self.motors = [robot.getDevice(f"wheel_{index}") for index in range(4)]
         for motor in self.motors:
             motor.setPosition(float("inf"))
@@ -23,6 +24,8 @@ class RoverDrive:
     def step(self):
         if self.robot.step(self.timestep) == -1:
             raise RuntimeError("Webots stopped during an action")
+        if self.after_step is not None:
+            self.after_step()
 
     def command(self, forward, yaw_rate):
         for index, motor in enumerate(self.motors):
