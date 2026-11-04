@@ -46,9 +46,19 @@ test('submission packages only the complete capture belonging to each attempt', 
       }
       const manifest = join(attempt, 'capture.json');
       const id = 'capture-' + index;
-      await writeJson(manifest, { version: 1, run_id: id, command: 'Fetch fixture ' + index, frames });
+      const command = index === 0
+        ? 'Fetch the red sphere from the far side of the room and drop it inside the green zone without touching the blue cylinder or the yellow cone.'
+        : 'Fetch fixture ' + index;
+      await writeJson(manifest, { version: 1, run_id: id, command, frames });
+      const originalManifest = await readFile(manifest);
       const clip = join(attempt, 'clip.mp4');
       execFileSync(process.execPath, [script('./export.mjs'), '--capture', manifest, '1', clip]);
+      assert.deepEqual(await readFile(manifest), originalManifest);
+      const receipt = JSON.parse(await readFile(clip + '.export.json', 'utf8'));
+      assert.deepEqual(receipt.timing, {
+        policy: 'fixed_frame_rate_one_output_frame_per_capture',
+        fps: 1, captured_frames: 10, inference_pauses: 'wall_clock_gaps_not_reconstructed', approval: 'pending',
+      });
       const resultPath = join(attempt, 'operator-result.json');
       const result = {
         verdict: { state: 'Done', outcome: ['pass', 'fail_wrong_object', 'fail_not_reached'][index] },
@@ -70,6 +80,12 @@ test('submission packages only the complete capture belonging to each attempt', 
       ], { encoding: 'utf8' }), output };
     };
     const runs = fixtures.map(fixture => fixture.run);
+    // Inspect the decoded frames directly: the black fixture gains bright pixels only during the overlay.
+    const bounds = spawnSync(process.env.FFMPEG_PATH || 'ffmpeg', [
+      '-v', 'info', '-i', runs[0].clip, '-vf', 'bbox=min_val=32', '-frames:v', '3', '-f', 'null', '-',
+    ], { encoding: 'utf8' });
+    assert.equal(bounds.status, 0, bounds.stderr);
+    assert.deepEqual([...bounds.stderr.matchAll(/n:(\d+) pts:.*x1:/g)].map(match => Number(match[1])), [0, 1]);
     const valid = await packageRuns('valid', runs);
     assert.equal(valid.status, 0, valid.stderr);
     assert.equal((await readdir(valid.output)).length, 7);
