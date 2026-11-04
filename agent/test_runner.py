@@ -214,6 +214,31 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual((result.status, result.decisions), ("recovery_exhausted", 1))
         self.engine.execute.assert_called_once()
 
+    def test_failed_turn_recovery_uses_refreshed_frame_and_action_history(self):
+        self.engine.state.side_effect = [state(), state("Blocked"), state()]
+        self.engine.look.side_effect = [jpeg("red"), jpeg("blue"), jpeg("white")]
+        self.engine.execute.side_effect = [
+            {"success": False}, {"success": True, "collided": False},
+        ]
+        self.claude.decide.side_effect = [
+            Decision("turn", {"degrees": 45}, {}),
+            Decision("move", {"distance": 0.2}, {}),
+        ]
+        result = self.run_rover(max_decisions=2)
+        first, recovery = self.claude.decide.call_args_list
+        blocks = recovery.args[0][0]["content"]
+        context = json.loads(blocks[0]["text"])
+        self.assertEqual(context["state"]["state"], "Blocked")
+        self.assertEqual(context["recent_actions"], [
+            {"tool": "turn", "args": {"degrees": 45}, "result": {"success": False}},
+        ])
+        self.assertIn("Do not repeat the failed turn", recovery.kwargs["system"])
+        self.assertNotEqual(first.args[0][0]["content"][1], blocks[1])
+        self.assertEqual(base64.b64decode(blocks[1]["source"]["data"]),
+                         (result.run_dir / "0001.png").read_bytes())
+        self.assertEqual([call.args for call in self.engine.execute.call_args_list],
+                         [("turn", {"degrees": 45}), ("move", {"distance": 0.2})])
+
     def test_bad_camera_and_failed_claude_do_not_dispatch(self):
         self.claude.decide.side_effect = ClaudeError("private exception detail")
         result = self.run_rover()

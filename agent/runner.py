@@ -37,10 +37,12 @@ SYSTEM_PROMPT = (
     "When holding, use the command and camera to locate the drop zone, center it, "
     "approach in short steps, and drop when close enough "
     "that the carried object will land inside it. "
-    "When Blocked, check the recent collided move. If you still face the same way, first move "
-    "0.3 metres in the opposite direction of that move to gain clearance. If you have already "
-    "turned, use the current camera to choose a short move into clear floor. After gaining clearance, "
-    "turn away from the obstacle and follow a clear route. Do not retry toward the same obstacle. "
+    "When Blocked, use recent action results to identify the contact. After a failed turn, "
+    "the rover may have rotated partly. Use the refreshed camera to choose a short move into "
+    "clear floor if safe. If a move is unsafe, turn away from the contact if the view supports it. "
+    "Do not repeat the failed turn. After a collided move, if still facing the same way, move "
+    "0.3 metres in the opposite direction of that move to gain clearance. If the heading changed, "
+    "use the current camera to choose a safe short move. Then follow a clear route. "
     "Use recent actions and their results to avoid repeating failed approaches."
 )
 
