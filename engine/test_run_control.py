@@ -8,6 +8,87 @@ from engine.run_control import RunConflict, RunControl
 
 
 class RunControlTests(unittest.TestCase):
+    def test_pickup_and_drop_action_phases(self):
+        adapter = Mock()
+        control = RunControl(adapter)
+
+        def pickup():
+            self.assertEqual(control.phase, "Pick up")
+            return {"success": next(pickup_results)}
+
+        def drop():
+            self.assertEqual(control.phase, "Drop")
+            return {"success": True, "in_zone": False}
+
+        pickup_results = iter((False, True))
+        adapter.pickup.side_effect = pickup
+        adapter.drop.side_effect = drop
+        control.execute("start", (None,), ())
+        control.execute("pickup", (), ("success",))
+        self.assertEqual((control.phase, control.holding), ("Locate", False))
+        control.execute("pickup", (), ("success",))
+        self.assertEqual((control.phase, control.holding), ("Carry", True))
+        control.execute("drop", (), ("success", "in_zone"))
+        self.assertEqual((control.phase, control.holding), ("Drop", False))
+
+    def test_action_exception_restores_phase_and_requires_reset(self):
+        adapter = Mock()
+        adapter.pickup.side_effect = TimeoutError
+        control = RunControl(adapter)
+        control.execute("start", (None,), ())
+        with self.assertRaises(TimeoutError):
+            control.execute("pickup", (), ("success",))
+        self.assertEqual(control.phase, "Locate")
+        with self.assertRaisesRegex(RunConflict, "^reset_required$"):
+            control.execute("pickup", (), ("success",))
+        self.assertEqual(
+            control.execute("finish", (), ()), {"state": "Done", "outcome": "fail_not_reached"}
+        )
+        control.execute("reset", (), ())
+        self.assertEqual(control.phase, "Idle")
+        self.assertFalse(control.needs_reset)
+
+    def test_assessed_start_requires_valid_key_and_evaluator(self):
+        adapter = Mock(spec=["reset"])
+        control = RunControl(adapter)
+        for key, error in (
+            ("invalid", "invalid_expected_fixture_key"), ("item_1", "evaluator_unavailable"),
+        ):
+            with self.subTest(key=key), self.assertRaisesRegex(RunConflict, f"^{error}$"):
+                control.execute("start", (key,), ())
+        adapter.reset.assert_not_called()
+        self.assertEqual(control.execute("start", (None,), ()), {"state": "Locate"})
+
+    def test_terminal_delivery_verdict_requires_truth(self):
+        for expected, delivered, outcome in (
+            ("item_1", "item_1", "pass"),
+            ("item_1", "item_2", "fail_wrong_object"),
+            ("item_1", None, None),
+            ("item_1", "invalid", None),
+            ("item_1", TimeoutError(), None),
+            (None, "item_1", None),
+        ):
+            with self.subTest(expected=expected, delivered=delivered):
+                adapter = Mock()
+                adapter.drop.return_value = {"success": True, "in_zone": True}
+                if isinstance(delivered, Exception):
+                    adapter.delivered_fixture_key.side_effect = delivered
+                else:
+                    adapter.delivered_fixture_key.return_value = delivered
+                control = RunControl(adapter)
+                control.execute("start", (expected,), ())
+                self.assertEqual(
+                    control.execute("drop", (), ("success", "in_zone")),
+                    {"success": True, "in_zone": True},
+                )
+                verdict = {"state": "Done", "outcome": outcome}
+                if outcome is None:
+                    verdict["reason"] = "evaluator_unavailable"
+                self.assertEqual(control.execute("finish", (), ()), verdict)
+                self.assertEqual(control.execute("finish", (), ()), verdict)
+                if expected is None:
+                    adapter.delivered_fixture_key.assert_not_called()
+
     def test_turn_contact_and_mixed_recovery_exhaustion(self):
         adapter = Mock()
         adapter.turn.side_effect = [

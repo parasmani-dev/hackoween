@@ -56,13 +56,22 @@ class RunControl:
         if self.phase in ("Idle", "Done"):
             raise RunConflict("no_active_run")
 
+        previous_phase = self.phase
+        if previous_phase != "Blocked":
+            if method == "pickup":
+                self.phase = "Pick up"
+            elif method == "drop":
+                self.phase = "Drop"
         try:
             result = getattr(self.adapter, method)(*args)
             payload = {field: result[field] for field in response_fields}
             if any(type(value) is not bool for value in payload.values()):
                 raise ValueError("Action results must contain boolean flags")
+            # Action phases are internal while the adapter lock is held.
+            self.phase = previous_phase
             self.advance(method, payload)
         except Exception:
+            self.phase = previous_phase
             self.needs_reset = True
             raise
         return payload
@@ -73,6 +82,12 @@ class RunControl:
                 raise RunConflict("reset_required")
             if self.phase not in ("Idle", "Done"):
                 raise RunConflict("run_already_active")
+            expected_key, = args
+            if expected_key is not None:
+                if not isinstance(expected_key, str) or expected_key not in FIXTURE_KEYS:
+                    raise RunConflict("invalid_expected_fixture_key")
+                if not callable(getattr(self.adapter, "delivered_fixture_key", None)):
+                    raise RunConflict("evaluator_unavailable")
         try:
             self.adapter.reset()
         except Exception:
