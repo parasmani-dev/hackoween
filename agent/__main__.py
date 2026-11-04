@@ -6,6 +6,7 @@ from dataclasses import asdict
 
 from .claude import ClaudeError
 from .engine import EngineClient
+from .openai_client import OpenAIError
 from .runner import run_command
 
 
@@ -14,15 +15,16 @@ def main():
     parser.add_argument("command", help="Operator's fetch command")
     parser.add_argument("--engine-url", default="http://localhost:8080")
     parser.add_argument("--output-root", default="runs")
+    parser.add_argument("--provider", choices=("claude", "openai"), default="claude")
     parser.add_argument("--audit-requests", action="store_true",
-                        help="Save Claude request bodies locally without HTTP headers")
+                        help="Save model request bodies locally without HTTP headers")
     args = parser.parse_args()
     try:
         result = run_command(
             args.command, engine=EngineClient(args.engine_url), output_root=args.output_root,
-            audit_requests=args.audit_requests,
+            audit_requests=args.audit_requests, provider=args.provider,
         )
-    except (ClaudeError, ValueError) as error:
+    except (ClaudeError, OpenAIError, ValueError) as error:
         parser.error(str(error))
     except OSError:
         parser.error("Could not create rover run artifacts.")

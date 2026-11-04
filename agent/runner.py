@@ -13,6 +13,7 @@ from PIL import Image
 
 from .claude import ClaudeClient, ClaudeError
 from .engine import ActionOutcomeUncertain, EngineClient, EngineError
+from .openai_client import OpenAIClient, OpenAIError
 
 
 MAX_DECISIONS = 60
@@ -63,7 +64,7 @@ def _terminal_status(state):
 
 def run_command(
     command, *, engine=None, claude=None, output_root="runs",
-    max_decisions=MAX_DECISIONS, audit_requests=False,
+    max_decisions=MAX_DECISIONS, audit_requests=False, provider="claude",
 ):
     """Return why the agent stopped. The operator owns evaluation and lifecycle."""
     if not isinstance(command, str) or not command.strip():
@@ -73,16 +74,19 @@ def run_command(
     engine = EngineClient() if engine is None else engine
     if audit_requests and claude is not None:
         raise ValueError("Configure auditing on the supplied Claude client.")
+    clients = {"claude": ClaudeClient, "openai": OpenAIClient}
+    if provider not in clients:
+        raise ValueError("Choose the claude or openai provider.")
     root = Path(output_root).resolve()
     root.mkdir(parents=True, exist_ok=True)
     run_dir = Path(mkdtemp(prefix="run-", dir=root))
 
     def audit_request(payload):
-        with (run_dir / "claude_requests.jsonl").open("a", encoding="utf-8") as audit:
+        with (run_dir / f"{provider}_requests.jsonl").open("a", encoding="utf-8") as audit:
             audit.write(json.dumps(payload, allow_nan=False) + "\n")
 
     if claude is None:
-        claude = ClaudeClient(audit_request=audit_request if audit_requests else None)
+        claude = clients[provider](audit_request=audit_request if audit_requests else None)
     history = deque(maxlen=8)
     usage = {"input_tokens": 0, "output_tokens": 0}
     decisions = 0
@@ -133,6 +137,8 @@ def run_command(
                     break
     except ClaudeError:
         status = "claude_error"
+    except OpenAIError:
+        status = "openai_error"
     except EngineError:
         status = "engine_error"
     except OSError:

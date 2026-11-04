@@ -128,3 +128,31 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn("mock-key", audit)
         self.assertNotIn("x-api-key", audit)
         self.assertEqual(result.status, "decision_limit")
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "mock-openai-key", "OPENAI_MODEL": "gpt-5-mini"})
+    @patch("agent.openai_client.request")
+    def test_openai_run_dispatches_one_validated_action(self, request):
+        call = {"type": "function", "function": {"name": "move", "arguments": '{"distance":-0.5}'}}
+        response = {
+            "choices": [{"finish_reason": "tool_calls", "message": {"tool_calls": [call]}}],
+            "usage": {"prompt_tokens": 20, "completion_tokens": 8,
+                      "prompt_tokens_details": {"cached_tokens": 5}},
+        }
+        request.return_value = ("application/json", json.dumps(response).encode())
+        options = dict(engine=self.engine, output_root=self.temp.name, provider="openai",
+                       max_decisions=1, audit_requests=True)
+        result = run_command("Fetch the red object", **options)
+        self.engine.execute.assert_called_once_with("move", {"distance": -0.5})
+        self.assertEqual(result.usage, {"input_tokens": 15, "cache_read_input_tokens": 5, "output_tokens": 8})
+        audit = (result.run_dir / "openai_requests.jsonl").read_text(encoding="utf-8")
+        payload = json.loads(audit)
+        self.assertEqual(payload, request.call_args.kwargs["payload"])
+        self.assertNotIn("mock-openai-key", audit)
+        self.assertFalse(payload["parallel_tool_calls"])
+        self.assertEqual(payload["messages"][1]["content"][1]["type"], "image_url")
+        self.assertTrue(all(tool["function"]["strict"] for tool in payload["tools"]))
+
+        response["choices"][0]["message"]["tool_calls"].append(call)
+        request.return_value = ("application/json", json.dumps(response).encode())
+        self.assertEqual(run_command("Fetch the red object", **options).status, "openai_error")
+        self.engine.execute.assert_called_once()

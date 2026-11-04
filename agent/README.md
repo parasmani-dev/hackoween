@@ -8,6 +8,15 @@ operator starts an engine run, invoke the agent from the repository root.
 python -m agent "Fetch the red sphere and drop it in the green zone"
 ```
 
+The agent supports Claude and OpenAI. For OpenAI, set `OPENAI_API_KEY` and
+optionally set `OPENAI_MODEL` to override the default `gpt-5-mini`. The
+project key needs write access to `POST /v1/chat/completions` and the project
+needs access to the selected model.
+
+```powershell
+python -m agent --provider openai "Fetch the red sphere and drop it in the green zone"
+```
+
 The CLI prints a JSON result with the stop reason, decision count, token usage,
 and run directory. Python callers can use `agent.runner.run_command` directly.
 `engine_done` means the engine reached its terminal state. The operator
@@ -20,7 +29,7 @@ describes one action attempt. Its UTC timestamp is the dispatch time, and
 used for that decision. Consecutive rows may refer to the same frame.
 
 For an integration audit, add `--audit-requests`. The run directory then
-contains `claude_requests.jsonl` with each outbound request body recorded just
+contains `claude_requests.jsonl` or `openai_requests.jsonl` with each outbound request body recorded just
 before the send attempt. The audit includes the command and camera pixels in
 base64. Keep it local and review the bodies before sharing findings. HTTP
 headers and API credentials are excluded.
