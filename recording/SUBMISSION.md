@@ -13,7 +13,10 @@ node recording/validate.mjs '<capture.json>' '<clip.mp4>'
 Use the capture's cadence to choose the fixed export rate and verify that the
 result fits the 10–20 second requirement. Keep the adjacent
 `clip.mp4.export.json` with the clip. The packager checks this receipt against
-the capture selected by the operator result and requires a passing verdict.
+the capture selected by the operator result and requires a passing verdict,
+`pov_status: "complete"`, and a `pov_capture_id` that matches the manifest's
+`run_id`. Older attempts missing these fields are rejected. Record a new
+attempt with the current launcher.
 
 Save a JSON configuration outside the repo with the fields below. Paths are
 relative to the configuration file unless absolute.

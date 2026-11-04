@@ -58,18 +58,22 @@ async function packageSubmission([configPath, outputPath, ...extra]) {
     }
     const attempt = await realpath(resolve(base, run.attempt));
     const result = JSON.parse(await readFile(join(attempt, 'operator-result.json'), 'utf8'));
-    if (result.verdict?.outcome !== 'pass' || result.pov_status === 'incomplete' ||
+    if (result.verdict?.outcome !== 'pass' || result.pov_status !== 'complete' ||
+        typeof result.pov_capture_id !== 'string' || !result.pov_capture_id.trim() ||
         typeof result.pov_manifest !== 'string' || !isAbsolute(result.pov_manifest)) {
-      throw new Error('Expected a passing launcher attempt with a completed POV manifest.');
+      throw new Error('Expected a passing launcher attempt with complete POV status, a capture ID, and a manifest.');
     }
     const capture = await realpath(result.pov_manifest);
+    const manifest = await readFile(capture);
+    const { run_id, command } = JSON.parse(manifest);
+    if (run_id !== result.pov_capture_id) {
+      throw new Error('POV manifest run ID does not match the launcher attempt capture ID.');
+    }
     const clip = await realpath(resolve(base, run.clip));
     const candidates = (await readdir(attempt, { withFileTypes: true }))
       .filter(entry => entry.isDirectory() && entry.name.startsWith('run-'));
     if (candidates.length !== 1) throw new Error('Expected exactly one agent run in the launcher attempt.');
     const agentRun = join(attempt, candidates[0].name);
-    const manifest = await readFile(capture);
-    const { run_id, command } = JSON.parse(manifest);
     const receipt = JSON.parse(await readFile(clip + '.export.json', 'utf8'));
     if (receipt.manifest_sha256 !== sha256(manifest) || receipt.clip_sha256 !== sha256(await readFile(clip))) {
       throw new Error('Clip and capture must match the receipt from export.mjs --capture.');
