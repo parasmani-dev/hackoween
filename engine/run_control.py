@@ -23,6 +23,7 @@ class RunControl:
         self.outcome = None
         self.verdict_reason = None
         self.needs_reset = False
+        self.pov = {}
 
     def state(self):
         with self.adapter_lock:
@@ -50,29 +51,45 @@ class RunControl:
         if method == "finish":
             return self.finish()
         if method in ("reset", "start"):
-            return self.lifecycle(method, args)
+            return self.lifecycle(method, *args)
         if self.needs_reset:
             raise RunConflict("reset_required")
         if self.phase in ("Idle", "Done"):
             raise RunConflict("no_active_run")
 
+        previous_phase = self.phase
+        if previous_phase != "Blocked":
+            if method == "pickup":
+                self.phase = "Pick up"
+            elif method == "drop":
+                self.phase = "Drop"
         try:
             result = getattr(self.adapter, method)(*args)
             payload = {field: result[field] for field in response_fields}
             if any(type(value) is not bool for value in payload.values()):
                 raise ValueError("Action results must contain boolean flags")
+            # Action phases are internal while the adapter lock is held.
+            self.phase = previous_phase
             self.advance(method, payload)
         except Exception:
+            self.phase = previous_phase
             self.needs_reset = True
             raise
+        if self.phase == "Done":
+            self.finalize_capture()
         return payload
 
-    def lifecycle(self, method, args):
+    def lifecycle(self, method, expected_key=None, command=None, record_pov=False):
         if method == "start":
             if self.needs_reset:
                 raise RunConflict("reset_required")
             if self.phase not in ("Idle", "Done"):
                 raise RunConflict("run_already_active")
+            if expected_key is not None:
+                if not isinstance(expected_key, str) or expected_key not in FIXTURE_KEYS:
+                    raise RunConflict("invalid_expected_fixture_key")
+                if not callable(getattr(self.adapter, "delivered_fixture_key", None)):
+                    raise RunConflict("evaluator_unavailable")
         try:
             self.adapter.reset()
         except Exception:
@@ -80,7 +97,9 @@ class RunControl:
             raise
         self.clear()
         if method == "start":
-            self.expected_fixture_key, = args
+            self.expected_fixture_key = expected_key
+            if record_pov:
+                self.start_capture(command)
             self.phase = "Locate"
         return {"state": self.phase}
 
@@ -90,10 +109,35 @@ class RunControl:
         if self.phase != "Done":
             self.phase = "Done"
             self.outcome = "fail_not_reached"
-        result = {"state": self.phase, "outcome": self.outcome}
+            self.finalize_capture()
+        result = {"state": self.phase, "outcome": self.outcome, **self.pov}
         if self.verdict_reason is not None:
             result["reason"] = self.verdict_reason
         return result
+
+    def start_capture(self, command):
+        self.pov["pov_status"] = "incomplete"
+        try:
+            if not callable(getattr(self.adapter, "finish_capture", None)):
+                raise RuntimeError("Capture finalization unavailable")
+            capture_id = self.adapter.start_capture(command)
+            if not isinstance(capture_id, str) or not capture_id.strip():
+                raise ValueError("Invalid capture ID")
+            self.pov["pov_capture_id"] = capture_id
+        except Exception:
+            logging.warning("Private POV capture could not start")
+
+    def finalize_capture(self):
+        # Called only at the transition to Done, under both run locks.
+        if self.needs_reset or "pov_capture_id" not in self.pov:
+            return
+        try:
+            manifest = self.adapter.finish_capture()
+            if not isinstance(manifest, str) or not manifest.strip():
+                raise ValueError("Invalid capture manifest")
+            self.pov.update(pov_status="complete", pov_manifest=manifest)
+        except Exception:
+            logging.warning("Private POV capture could not finalize")
 
     def record_delivery(self):
         delivered_key = None
@@ -113,15 +157,16 @@ class RunControl:
 
     def advance(self, method, result):
         success = result["success"]
-        if method == "move":
-            if self.phase == "Blocked" and (result["collided"] or not success):
+        if method in ("move", "turn"):
+            contact = result["collided"] if method == "move" else not success
+            if self.phase == "Blocked" and (contact or not success):
                 self.retry_count += 1
                 if self.retry_count == 3:
                     self.phase = "Done"
                     self.outcome = "fail_collision"
-            elif result["collided"]:
+            elif contact:
                 self.phase = "Blocked"
-            elif success:
+            elif method == "move" and success:
                 self.retry_count = 0
                 self.phase = "Carry" if self.holding else "Go to object"
         elif method == "pickup" and success:
