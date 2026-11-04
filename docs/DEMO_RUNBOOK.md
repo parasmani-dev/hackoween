@@ -2,14 +2,17 @@
 
 ## Offline rehearsal
 
-Use the simulator branch from PR #6, engine `7193439` from PR #7, agent `bcb262d` from PR #8, and UI and recording `56eeb14` from PR #9. Check out teammates' branches in separate folders. Install Webots R2025a, Python with Pillow, and Node.js. The recording scripts also need FFmpeg with drawtext and ffprobe.
+Use a fresh recursive checkout of main, which includes simulator PR #6, engine PR #7, agent PR #8, and UI and recording PR #9. Install Webots R2025a, Python with Pillow, and Node.js. The recording scripts also need FFmpeg with drawtext and ffprobe.
 
-From the simulator checkout in PowerShell, set these paths to your local checkouts.
+In PowerShell, run the rehearsal from the repository root.
 
 ```powershell
-$engine = (Resolve-Path '..\hackoween-engine-test\engine\server.py').Path
-$agent = (Resolve-Path '..\hackoween-agent-test').Path
-$ui = (Resolve-Path '..\hackoween-ui-test\ui\server.mjs').Path
+git clone --recurse-submodules https://github.com/parasmani-dev/hackoween.git
+Set-Location hackoween
+python -m pip install -r agent/requirements.txt
+$engine = (Resolve-Path ./engine/server.py).Path
+$agent = (Get-Location).Path
+$ui = (Resolve-Path ./ui/server.mjs).Path
 $webots = 'C:\Program Files\Webots\msys64\mingw64\bin\webots.exe'
 .\simulation\check_http_fetch.ps1 -EngineServer $engine -WebotsExe $webots -UiServer $ui
 ```
@@ -32,7 +35,7 @@ $env:CLAUDE_MODEL = Read-Host 'Organizer Claude model identifier'
 
 ## Submission checklist
 
-- [ ] Review and integrate the four PRs and verify a fresh recursive checkout.
+- [x] Review and integrate the four PRs and verify a fresh recursive checkout.
 - [ ] Verify three hands-free live commands and record the required organizer sign-off.
 - [ ] Run each of the three hidden commands once at the organizer's scheduled time.
 - [ ] Export all three clips at 720p or higher and 10–20 seconds, with the exact command visible for the first two seconds. Check that there are no team names, logos, or code in the footage. Preserve raw capture timing.
