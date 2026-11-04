@@ -122,3 +122,19 @@ rejected, including after failure. Claims are not automatically deleted. This
 local safeguard cannot enforce attempts made on other computers or another ledger.
 Do not use real official slots in rehearsals. No model call is authorized merely
 by these instructions.
+
+## Smooth operator preview
+
+Set `ROVER_PREVIEW_FILE` to the same absolute JPEG path in the Webots and UI
+server environments. The controller publishes a 640x480 operator-only preview
+after each motion step; the UI serves it at `/preview` without waiting for the
+engine action lock. Agent `/look` and recordings remain unchanged. The browser
+requests at most 20 frames/second with one fetch/decode at a time, pauses camera
+polling in hidden tabs, and retains its last good frame during transient errors.
+Without the variable, the UI falls back to the original `/look` endpoint.
+
+For a persistent real-adapter engine, launch the bridge world then run
+`python -m integration.serve_preview --bridge-port <port> --engine-port <port>`.
+Run `node ui/server.mjs` with matching `ROVER_ENGINE_PORT`, `ROVER_UI_PORT`, and
+`ROVER_PREVIEW_FILE`. `ROVER_OFFLINE_DEMO=1` enables the fixed offline Start route;
+no model is launched by this preview setup.

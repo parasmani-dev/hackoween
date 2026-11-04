@@ -102,19 +102,42 @@ if (mock) {
     if (!reset.disabled) changeRun("/run/reset", {});
   });
   updateControls();
-  camera.addEventListener("load", () => {
-    camera.hidden = false;
-    cameraNote.textContent = "";
-  });
-  camera.addEventListener("error", () => {
-    camera.hidden = true;
-    cameraNote.textContent = "Camera unavailable.";
-  });
+  let displayedFrame = null;
+  let cameraFailures = 0;
+  async function refreshCamera() {
+    let nextFrame = null;
+    const started = performance.now();
+    try {
+      if (document.hidden) return;
+      const response = await fetch(offlineDemo?.preview ? "/preview" : "/look", {
+        cache: "no-store", signal: AbortSignal.timeout(3000),
+      });
+      if (!response.ok) throw new Error("Camera unavailable");
+      nextFrame = URL.createObjectURL(await response.blob());
+      const decoded = new Image();
+      decoded.src = nextFrame;
+      await decoded.decode();
+      camera.src = nextFrame;
+      if (displayedFrame) URL.revokeObjectURL(displayedFrame);
+      displayedFrame = nextFrame;
+      nextFrame = null;
+      camera.hidden = false;
+      cameraFailures = 0;
+      cameraNote.textContent = "";
+    } catch {
+      cameraFailures += 1;
+      if (cameraFailures >= 3) cameraNote.textContent = "Waiting for camera — showing the last received frame.";
+    } finally {
+      if (nextFrame) URL.revokeObjectURL(nextFrame);
+      // One request/decode at a time. Hidden tabs do not poll the camera.
+      setTimeout(refreshCamera, document.hidden ? 1000 : Math.max(0, 50 - (performance.now() - started)));
+    }
+  }
+  refreshCamera();
   async function refresh() {
     const observedRevision = revision;
-    camera.src = `/look?t=${Date.now()}`;
     try {
-      const response = await fetch("/state", { cache: "no-store" });
+      const response = await fetch("/state", { cache: "no-store", signal: AbortSignal.timeout(4000) });
       if (!response.ok) throw new Error("State unavailable");
       const state = await response.json();
       const demo = await readOfflineDemo();
@@ -138,11 +161,12 @@ if (mock) {
       if (status.textContent !== summary) status.textContent = summary;
     } catch {
       if (busy || observedRevision !== revision) return;
-      roverState = null;
-      updateControls();
-      status.textContent = "Engine status unavailable. Start the engine on localhost:8080.";
+      if (roverState === null) {
+        updateControls();
+        status.textContent = "Waiting for the rover engine.";
+      }
     } finally {
-      setTimeout(refresh, 1000);
+      setTimeout(refresh, document.hidden ? 1000 : 300);
     }
   }
   refresh();

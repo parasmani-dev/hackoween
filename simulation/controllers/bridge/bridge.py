@@ -36,6 +36,10 @@ class Scene:
         self.initial_rotation = self.drive.node.getField("rotation").getSFRotation()
         self.held = None
         self.capture = None
+        self.preview_path = Path(os.environ["ROVER_PREVIEW_FILE"]) if os.environ.get("ROVER_PREVIEW_FILE") else None
+        if self.preview_path is not None:
+            self.preview_path.parent.mkdir(parents=True, exist_ok=True)
+            self.drive.preview_step = self.publish_preview
         self.status = "Idle"
         self.reset()
 
@@ -80,6 +84,17 @@ class Scene:
                 stream, "JPEG", quality=90
             )
             return base64.b64encode(stream.getvalue()).decode("ascii")
+
+    def publish_preview(self):
+        # Operator-only feed; never advances physics or enters agent context.
+        try:
+            pixels = self.camera_pixels().resize((640, 480), Image.Resampling.BILINEAR)
+            pending = self.preview_path.with_suffix(".tmp")
+            pixels.save(pending, "JPEG", quality=80)
+            pending.replace(self.preview_path)
+        except OSError:
+            # A viewer must never interrupt a physical action.
+            pass
 
     def start_capture(self, command):
         if self.capture is not None:
