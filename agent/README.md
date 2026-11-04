@@ -1,0 +1,24 @@
+# Rover agent
+
+Install the dependencies with `python -m pip install -r agent/requirements.txt`.
+Set `ANTHROPIC_API_KEY` and `CLAUDE_MODEL` in the environment. After the
+operator starts an engine run, invoke the agent from the repository root.
+
+```powershell
+python -m agent "Fetch the red sphere and drop it in the green zone"
+```
+
+The CLI prints a JSON result with the stop reason, decision count, token usage,
+and run directory. Python callers can use `agent.runner.run_command` directly.
+`engine_done` means the engine reached its terminal state. The operator
+evaluator reports the task outcome separately. The runner uses the engine's
+`Done` state and treats `Blocked` with `retry_count >= 3` as exhausted recovery
+pending confirmation of the integrated engine's behavior.
+
+The runner writes `steps.jsonl` under a unique directory in `runs/`. Each row
+describes one action attempt. Its UTC timestamp is the dispatch time, and
+`frame_path` is relative to that run directory and points to the numbered PNG
+used for that decision. Consecutive rows may refer to the same frame.
+
+Run the client and loop tests with mocked services using
+`python -m unittest discover -s agent -v`.
