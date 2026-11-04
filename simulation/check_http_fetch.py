@@ -72,11 +72,14 @@ def check(server, adapter, ui_root=None):
     else:
         raise AssertionError("Private fixture key unexpectedly has an HTTP route")
 
-    def fetch():
+    def approach_and_pickup():
         drive(-1.01, 0.44)
         face(-0.55, 0.65)
         assert call("/pickup", {}) == {"success": True}, state()
         assert state()["holding"]
+
+    def fetch():
+        approach_and_pickup()
         drive(-0.65, state()["y"])
         drive(-0.65, -1.65)
         drive(1.28, -1.65)
@@ -111,6 +114,19 @@ def check(server, adapter, ui_root=None):
     assert adapter.drop() == {"success": False, "in_zone": False}
     assert adapter.delivered_fixture_key() is None
     print("PASS: private key clears on reset and subsequent drop attempt")
+
+    assert call("/run/start", command) == {"state": "Locate"}
+    approach_and_pickup()
+    assert call("/drop", {}) == {"success": True, "in_zone": False}
+    assert call("/run/finish", {"reason": "abandoned"})["outcome"] == "fail_not_reached"
+    for _ in range(2):
+        assert call("/run/reset", {}) == {"state": "Idle"}
+        assert call("/run/start", command) == {"state": "Locate"}
+        assert call("/move", {"distance": -2}) == {"success": False, "collided": True}
+        assert call("/move", {"distance": 0.6}) == {"success": True, "collided": False}
+        fetch()
+        assert call("/run/finish", {"reason": "abandoned"})["outcome"] == "pass"
+    print("PASS: two back-to-back fetches after out-of-zone drop and reset")
 
     assert call("/run/start", command) == {"state": "Locate"}
     assert call("/move", {"distance": -2}) == {"success": False, "collided": True}
