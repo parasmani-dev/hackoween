@@ -25,9 +25,14 @@ The check starts Webots, the HTTP engine on port 8080, and the UI proxy on port 
 2. Archit runs one red-sphere command with recording and request auditing enabled. Use the launcher as the single owner of Start. This live path runs separately from the offline UI rehearsal. Keep credentials in the local shell and agree on the decision cap before making calls.
 
 ```powershell
+$rawDecisionCap = Read-Host 'Approved decision cap (1-60)'
+if ($rawDecisionCap -notmatch '\A(?:[1-9]|[1-5][0-9]|60)\z') {
+    throw 'Decision cap must be a whole number from 1 to 60.'
+}
+$approvedDecisionCap = [int]$rawDecisionCap
 $env:ANTHROPIC_API_KEY = Read-Host 'Organizer Claude API key' -MaskInput
 $env:CLAUDE_MODEL = Read-Host 'Organizer Claude model identifier'
-.\simulation\check_http_fetch.ps1 -EngineServer $engine -WebotsExe $webots -AgentRoot $agent -Provider claude -Command 'Fetch the red sphere and drop it in the green zone' -ExpectedFixtureKey item_1 -RecordPov
+.\simulation\check_http_fetch.ps1 -EngineServer $engine -WebotsExe $webots -AgentRoot $agent -Provider claude -Command 'Fetch the red sphere and drop it in the green zone' -ExpectedFixtureKey item_1 -RecordPov -MaxDecisions $approvedDecisionCap
 ```
 
 3. Paras checks the observed delivery and `operator-result.json`. Archit checks the tool history and model requests. Ayush verifies that the 640×480 decision images match the logged PNGs and that native 1280×960 POV and private verdicts stay separate. Record only sanitized results in issue #5.

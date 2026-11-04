@@ -7,12 +7,22 @@ param(
     [ValidateSet("claude", "openai")]
     [string]$Provider = "claude",
     [string]$Command,
+    [string]$MaxDecisions,
     [string]$ExpectedFixtureKey,
     [switch]$RecordPov,
     [string]$UiServer
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Command -and -not $PSBoundParameters.ContainsKey('MaxDecisions')) {
+    throw '-MaxDecisions is required with -Command.'
+}
+if ($PSBoundParameters.ContainsKey('MaxDecisions')) {
+    if ($MaxDecisions -notmatch '\A(?:[1-9]|[1-5][0-9]|60)\z') {
+        throw '-MaxDecisions must be a whole number from 1 to 60.'
+    }
+    $MaxDecisions = [int]$MaxDecisions
+}
 $output = Join-Path $PWD ('runs/bridge-check-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $output | Out-Null
 Copy-Item simulation/worlds,simulation/controllers -Destination $output -Recurse
@@ -27,7 +37,7 @@ if ($UiServer) {
 $webotsArgs = @('--batch', '--mode=fast', '--minimize', ('"' + $world + '"'))
 $window = 'Hidden'
 if ($Command) {
-    $checkArgs += @('--agent-root', "$AgentRoot", '--provider', $Provider, '--command', $Command)
+    $checkArgs += @('--agent-root', "$AgentRoot", '--provider', $Provider, '--command', $Command, '--max-decisions', [string]$MaxDecisions)
     if ($ExpectedFixtureKey) {
         $checkArgs += @('--expected-fixture-key', $ExpectedFixtureKey)
     }
