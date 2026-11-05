@@ -12,6 +12,7 @@ COPY agent/requirements.txt agent/requirements.txt
 RUN python3 -m venv /opt/rover && /opt/rover/bin/pip install --no-cache-dir \
     -r engine/requirements.txt -r agent/requirements.txt
 ENV PATH="/opt/rover/bin:$PATH" LIBGL_ALWAYS_SOFTWARE=1 PYTHONUNBUFFERED=1
+ENV ROVER_WEBOTS_TIMEOUT=60 ROVER_ACTION_TIMEOUT=65
 
 COPY agent agent
 COPY engine engine

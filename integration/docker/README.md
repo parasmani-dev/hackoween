@@ -16,6 +16,12 @@ These scenarios use scripted actions and need no model credentials.
 
 The repository keeps `integration/docker/start.sh` in LF format, and the build
 also normalizes the copied launcher for existing Windows checkouts using CRLF.
+Software rendering can make a long move exceed the desktop's 30-second bridge
+timeout. The image gives the Webots bridge 60 seconds and scripted action
+clients 65 seconds. An action that exceeds those limits still ends uncertain
+without being repeated. `ROVER_WEBOTS_TIMEOUT` and `ROVER_ACTION_TIMEOUT`
+configure these bounds in seconds; keep the action timeout above the bridge
+timeout when overriding them. Desktop defaults remain 30 and 35 seconds.
 
 ## Publish on another port
 
