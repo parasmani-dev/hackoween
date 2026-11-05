@@ -124,7 +124,11 @@ class Scene:
             pixels = self.camera_pixels()
             pending = self.preview_path.with_suffix(".tmp")
             pixels.save(pending, "JPEG", quality=90, subsampling=0)
-            pending.replace(self.preview_path)
+            try:
+                pending.replace(self.preview_path)
+            except PermissionError:
+                # A Windows reader can briefly hold the published frame open.
+                return
             self.preview_ready = True
         except (OSError, ValueError):
             # Webots can raise ValueError("NULL pointer access") before a frame exists.
@@ -191,7 +195,14 @@ class Scene:
 
     def move(self, distance):
         approach_heading = self.drive.heading()
-        success = self.drive.move(distance)
+        # Ramp straight travel while retaining the calibrated turn and retreat commands.
+        for motor in self.drive.motors:
+            motor.setAcceleration(100.0)
+        try:
+            success = self.drive.move(distance)
+        finally:
+            for motor in self.drive.motors:
+                motor.setAcceleration(-1.0)
         if not success:
             self.drive.back_off(distance, approach_heading)
         self.status = ("Carry" if self.held else "Go to object") if success else "Blocked"

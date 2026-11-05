@@ -3,7 +3,9 @@ function startFeed(id, path, active = () => true) {
   const note = document.getElementById(id + '-state');
   let displayed;
   async function refresh() {
+    const started = performance.now();
     let candidate;
+    let retryDelay = 0;
     try {
       if (document.hidden || !active()) return;
       const response = await fetch(path, {signal: AbortSignal.timeout(2000)});
@@ -19,11 +21,16 @@ function startFeed(id, path, active = () => true) {
       note.textContent = response.headers.get('X-Frame-State') === 'paused'
         ? 'Paused · last simulator frame' : 'Live feed';
     } catch {
+      retryDelay = 150;
       note.textContent = displayed
         ? 'Feed interrupted · last frame shown' : 'Feed interrupted · waiting for a frame';
     } finally {
       if (candidate) URL.revokeObjectURL(candidate);
-      setTimeout(refresh, document.hidden || !active() ? 750 : 150);
+      // Keep the request and decode inside the frame budget, with one frame in flight.
+      const frameInterval = 1000 / 30;
+      const delay = document.hidden || !active()
+        ? 750 : Math.max(retryDelay, frameInterval - (performance.now() - started));
+      setTimeout(refresh, delay);
     }
   }
   refresh();
