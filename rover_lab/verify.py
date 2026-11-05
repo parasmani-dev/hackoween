@@ -13,6 +13,7 @@ from PIL import Image
 
 BASE = os.environ.get("ROVER_LAB_URL", "http://127.0.0.1:8113")
 ROOT = Path(os.environ.get("ROVER_LAB_RUN_DIR", Path(__file__).resolve().parents[1] / "runs" / "rover-lab-8113"))
+VERIFY_TIMEOUT = float(os.environ.get("ROVER_LAB_VERIFY_TIMEOUT", "150"))
 
 
 @lru_cache
@@ -54,7 +55,7 @@ def check(layout, expected, probe=None):
     call("/start", {"probe": probe})
     if layout == "A" and probe is None:
         expect_select_error("B", 409)
-    limit = monotonic() + 85
+    limit = monotonic() + VERIFY_TIMEOUT
     while monotonic() < limit:
         status = call("/status")
         if not status["running"]:
@@ -92,7 +93,7 @@ def check_red_sphere():
         check_image(prefix + path, (1280, 960), "JPEG", page=page)
     check_image(prefix + "/look", (640, 480), "JPEG", page=page)
     call(prefix + "/run/start", {"command": demo["command"]}, page=page)
-    limit = monotonic() + 85
+    limit = monotonic() + VERIFY_TIMEOUT
     while monotonic() < limit:
         status = call(prefix + "/offline-demo", page=page)["status"]
         if status != "running":

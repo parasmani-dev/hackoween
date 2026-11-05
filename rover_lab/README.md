@@ -20,6 +20,9 @@ python rover_lab/verify.py
 ```
 
 For a port offset, use the URL and runtime directory printed by the launcher. Rover Lab writes generated evidence, camera frames, and simulator logs under `runs/`. The site includes small preview images from a scripted run and Geist fonts under their [SIL Open Font License](site/LICENSE.txt).
+The offline verifier allows 150 seconds per rehearsal by default; use
+`ROVER_LAB_VERIFY_TIMEOUT` to change that test deadline on a slower machine.
+It does not alter engine action timeouts or model decision caps.
 
 ## Claude Haiku 4.5 in the new UI
 
