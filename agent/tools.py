@@ -27,7 +27,7 @@ def tool_definitions(available_actions=None, *, visual_memory=False):
                 "type": "object",
                 "properties": {**({field: {"type": "number", "description": units}} if field else {}),
                     **({"visual_observation": {"type": "string", "description":
-                        "Brief camera observation (under 400 characters): requested target color/shape, image position, whether visible or clipped below frame, and clear route. Update from this image; do not invent unseen objects or coordinates."}} if visual_memory else {})},
+                        "Camera observation under 400 characters: target pixel bounds [left,top,right,bottom] in 640x480 or absent/occluded; color/shape; visible or clipped; clear route. Centered means midpoint x=256..384. While holding, describe the floor drop zone. Update from this image; do not invent unseen objects or coordinates."}} if visual_memory else {})},
                 "required": ([field] if field else []) + (["visual_observation"] if visual_memory else []),
                 "additionalProperties": False,
             },
