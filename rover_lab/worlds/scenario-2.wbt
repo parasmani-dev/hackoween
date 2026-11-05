@@ -1098,8 +1098,8 @@ Robot {
     DEF ARENA_CAMERA Camera {
       rotation 0 1 0 0.745959927
       name "overhead"
-      width 640
-      height 480
+      width 1280
+      height 960
       fieldOfView 0.91
       antiAliasing TRUE
     }

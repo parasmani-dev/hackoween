@@ -121,9 +121,9 @@ class Scene:
     def publish_preview(self):
         # Operator-only feed; never advances physics or enters agent context.
         try:
-            pixels = self.camera_pixels().resize((640, 480), Image.Resampling.BILINEAR)
+            pixels = self.camera_pixels()
             pending = self.preview_path.with_suffix(".tmp")
-            pixels.save(pending, "JPEG", quality=80)
+            pixels.save(pending, "JPEG", quality=90, subsampling=0)
             pending.replace(self.preview_path)
             self.preview_ready = True
         except (OSError, ValueError):
