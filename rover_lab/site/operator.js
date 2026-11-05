@@ -37,7 +37,7 @@ function render() {
   if (!live && snapshot) command.value = snapshot.offline.command;
   start.textContent = live ? 'Start Haiku fetch' : 'Start offline rehearsal';
   byId('mode').textContent = live
-    ? 'Claude Haiku 4.5 · Start makes paid API calls · decision cap applies'
+    ? 'Claude Haiku 4.5 + camera controller · Start makes paid API calls · decision cap applies'
     : 'Offline scripted rehearsal · zero model calls';
   if (snapshot) {
     const state = snapshot.state;

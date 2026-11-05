@@ -97,6 +97,18 @@ class RunnerTests(unittest.TestCase):
         self.engine.execute.assert_called_once()
         self.assertEqual(self.records(result)[1]['result']['outcome'], 'not_dispatched')
 
+    def test_empty_drop_is_unavailable_and_release_clears_memory(self):
+        self.engine.state.side_effect = [{**state('Carry'), 'holding': True}, state(),
+                                         {**state('Carry'), 'holding': True}]
+        self.engine.execute.side_effect = [{'success': True, 'in_zone': False}, {'success': True}]
+        self.claude.decide.side_effect = [Decision('drop', {}, {}, 'Still holding red sphere'),
+                                         Decision('pickup', {}, {})]
+        self.run_rover(max_decisions=2)
+        offered=[call.args[0] for call in self.claude.set_available_actions.call_args_list]
+        self.assertNotIn('pickup', offered[0]);self.assertNotIn('drop', offered[1])
+        context=json.loads(self.claude.decide.call_args_list[1].args[0][0]['content'][0]['text'])
+        self.assertIn('holding is false',context['previous_visual_observation'])
+
     def setUp(self):
         self.temp = TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -191,6 +203,7 @@ class RunnerTests(unittest.TestCase):
                     self.engine.reset_mock()
                     self.claude.reset_mock()
                     self.engine.execute.return_value = {'success': False}
+                    self.engine.state.return_value = {**state(), 'holding': tool == 'drop'}
                     self.claude.decide.return_value = Decision(tool, {}, {'input_tokens': 1})
                     result = self.run_rover(provider=provider)
                     self.assertEqual((result.status, result.decisions), ('navigation_stalled', 4))
@@ -240,6 +253,7 @@ class RunnerTests(unittest.TestCase):
         self.assertIn('pickup', offered[4])
 
     def test_out_of_zone_drop_needs_a_pose_correction_even_after_repickup(self):
+        self.engine.state.side_effect = [{**state(), 'holding': True}, state(), {**state(), 'holding': True}]
         self.engine.execute.side_effect = [{'success': True, 'in_zone': False}, {'success': True}]
         self.claude.decide.side_effect = [Decision('drop', {}, {}), Decision('pickup', {}, {}),
                                         Decision('drop', {}, {})]
@@ -250,7 +264,7 @@ class RunnerTests(unittest.TestCase):
     def test_camera_refresh_reuse_and_artifacts(self):
         self.engine.look.side_effect = [jpeg("red"), jpeg("green"), jpeg("blue")]
         self.engine.state.side_effect = [
-            state(), state("Blocked", 1), state(), state("Carry"), state("Done"),
+            state(), state("Blocked", 1), state(), {**state("Carry"), "holding": True}, state("Done"),
         ]
         self.engine.execute.side_effect = [
             {"success": False, "collided": True}, {"success": True},
@@ -366,7 +380,7 @@ class RunnerTests(unittest.TestCase):
                     self.assertEqual(set(context), {"command", "state", "remaining_decisions", "recent_actions", "previous_visual_observation"})
                     self.assertEqual(context["command"], command)
                     self.assertEqual(set(context["state"]), {"state", "x", "y", "heading", "holding", "retry_count"})
-                    self.assertEqual(names, {"move", "turn", "pickup", "drop"})
+                    self.assertEqual(names, {"move", "turn", "pickup"})
                     self.assertEqual(base64.b64decode(encoded), (result.run_dir / row["frame_path"]).read_bytes())
                     for action in context["recent_actions"]:
                         self.assertEqual(set(action), {"tool", "args", "result"})

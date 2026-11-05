@@ -98,8 +98,8 @@ only a finite metre distance (0–10) or null, never object metadata.
 Before dispatch, the agent rejects positive moves exceeding the latest measured
 range minus 0.04 m clearance. Rejections are logged without movement or a new
 image. The prompt asks for direct alignment and a pickup trial before contact.
-No action is silently shortened in production. The offline measurement verifier
-selects its own shorter move within that limit.
+Controller corrections are recorded alongside the model proposal. The approach
+controller may choose a shorter move within the measured clearance.
 
 This is a centerline clearance guard, not full collision avoidance. Side contacts
 still require camera-based route selection. A carried object occludes the ray,
@@ -121,3 +121,34 @@ it does not guarantee recognition or a successful pickup.
 The UI defaults to 50 decisions. Each decision makes one provider request with
 no automatic transport retries; rejected proposals also consume a decision.
 This is a per-run call cap, not a change to the API account balance.
+
+
+### Camera-grounded delivery
+
+For explicit commands of the form `Fetch the <color> <shape> and drop it in the
+<color> zone`, the agent now measures colored components in the actual camera
+frame. It aligns to the measured object, projects visible floor-zone pixels using
+the fixed camera calibration, and retains that image-derived position using public
+rover odometry when the carried object obscures the floor. Observed objects form
+an inflated obstacle map for short route segments. A drop requires the calibrated
+carried-object position to reach the observed zone, rather than trusting a model's
+unverified "ready to drop" statement.
+
+The controller does not read scene files, true fixture coordinates or evaluator
+identities. Camera decisions are logged with the AI proposal. This is a hybrid
+AI/camera controller; relational or unsupported commands retain the general model
+policy. Simple saturated shapes/markings and a flat calibrated floor are required;
+this is not a general-purpose object detector for arbitrary real-world scenes.
+
+The engine holding flag controls offered tools: no drop while empty, no pickup
+while holding. Successful release immediately clears stale carrying memory.
+
+Offline complete-delivery check (provider transports are blocked):
+
+```powershell
+python -B -m rover_lab.verify_camera_fetch_offline --engine-port 19336 --output runs/camera-fetch
+```
+
+This sends deliberately inaccurate mocked AI proposals through the production
+controller and real Webots. It validates physical pickup/routing/drop and recording;
+it is not a paid Haiku acceptance run.

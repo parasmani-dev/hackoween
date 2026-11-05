@@ -148,3 +148,34 @@ holding while actual public holding was false, causing ineffective additional
 drop proposals at 32/35 before reacquisition. Current recovery fix is not a claim
 of reliable full-task autonomy. All remaining 40 authorized calls are consumed;
 no further paid retry started.
+
+## Pixel-grounded delivery implementation
+
+Replaced model-estimated arrival for explicit colored-object fetch commands with
+production camera measurements (`agent/camera_navigation.py`). Connected components
+verify the requested color/silhouette, distinguish green floor pixels from cyan
+wall trim, project floor points with calibrated camera geometry, and retain a local
+zone/obstacle map using public odometry. A short-segment grid route avoids observed
+obstacles; persistent waypoints prevent repeated detour reversals. The calibrated
+carried-object position must reach the observed zone before drop. No scene files,
+fixture IDs, known zone coordinates or scripted production waypoints are read.
+Relational commands retain the general model path; this calibrated simple-shape
+controller is not a general real-world perception claim.
+
+Engine holding state now determines tool availability for both providers. Drop is
+not offered when empty; pickup is not offered while holding. Successful release
+clears stale carrying memory immediately. Each corrected action and camera-derived
+geometry is recorded alongside the AI proposal. Existing range, recovery and
+call-limit checks remain active; engine physics/evaluation unchanged.
+
+Verification: 102 offline regressions pass. Complete real-Webots fetch with
+intentionally inaccurate mocked AI proposals passes at start headings 0, +15,
+-15 degrees: 33, 32, 33 decisions respectively, successful pickup and in-zone drop,
+zero contacts, complete native POV. Reports:
+`runs/camera-delivery-final-0/report.json`,
+`runs/camera-delivery-final-15/report.json`,
+`runs/camera-delivery-final-minus15/report.json`.
+Earlier failing geometry/planner prototypes remain saved for traceability.
+Zero provider calls in this phase. These are complete camera-controller deliveries
+with mocked AI, not new live Haiku acceptance. Live validation of this revision
+remains separate; no additional paid allowance has been assumed.

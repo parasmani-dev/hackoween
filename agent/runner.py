@@ -4,7 +4,7 @@ import base64
 import json
 import math
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
@@ -17,6 +17,7 @@ from .engine import ActionOutcomeUncertain, EngineClient, EngineError
 from .openai_client import OpenAIClient, OpenAIError
 from .tools import finite_number
 from .visual_control import correct_action
+from .camera_navigation import CameraNavigator
 
 
 MAX_DECISIONS = 60
@@ -215,6 +216,7 @@ def run_command(
 
     if claude is None:
         claude = clients[provider](audit_request=audit_request if audit_requests else None)
+    camera_navigator = CameraNavigator(command)
     history = deque(maxlen=8)
     usage = {"input_tokens": 0, "output_tokens": 0}
     decisions = 0
@@ -279,9 +281,12 @@ def run_command(
                     if not _pose_changed(pose, _pose(state))
                 }
                 disabled = list(failed_manipulations)
+                incompatible = 'pickup' if state['holding'] else 'drop'
+                if incompatible not in disabled:
+                    disabled.append(incompatible)
                 if disabled:
-                    system += (" Actions currently unavailable at this unchanged pose: " + ", ".join(disabled)
-                               + ". Their previous attempts failed here. Choose a meaningful move or turn "
+                    system += (" Actions currently unavailable in this holding state or unchanged pose: " + ", ".join(disabled)
+                               + ". Holding state and previous failures determine availability. Choose a meaningful move or turn "
                                "to correct position/alignment before trying them again. A zero command "
                                "or another failed manipulation does not change this restriction.")
                 if rejected_turns:
@@ -312,11 +317,17 @@ def run_command(
                                                        depth=depth, disabled=disabled, history=history,
                                                        allow_exploration=blocked_carry_heading is None,
                                                        recovering=state['state'] == 'Blocked')
+                if proposed.target_view is not None and state['state'] != 'Blocked':
+                    grounded = camera_navigator.decide(run_dir / frame_name, state, depth, disabled)
+                    if grounded is not None:
+                        name, args, correction = grounded
+                        decision = replace(decision, name=name, args=args)
                 if proposed.target_view is not None:
                     decision_report = {'proposal': {'tool': proposed.name, 'args': proposed.args},
                                        'target_view': proposed.target_view,
                                        'visual_observation': proposed.observation,
-                                       'controller_correction': correction}
+                                       'controller_correction': correction,
+                                       'camera_geometry': camera_navigator.debug}
                 timestamp = datetime.now(timezone.utc).isoformat()
                 repeats_collision = (
                     decision.name == "move" and history and history[-1]["tool"] == "move"
@@ -360,6 +371,9 @@ def run_command(
                     failed_manipulations[decision.name] = _pose(state)
                 if decision.name == "pickup" and result["success"]:
                     visual_memory = "Pickup confirmed by action result. Track the requested drop zone now."
+                if decision.name == 'drop' and result.get('success'):
+                    visual_memory = ('Release confirmed: holding is false. The object is no longer attached. '
+                                     'If outside the zone, reacquire it before any further delivery.')
                 if state['holding'] and decision.name == 'move' and result.get('collided'):
                     blocked_carry_heading = state['heading']
                 history.append(action)
