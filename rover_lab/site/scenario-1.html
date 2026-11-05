@@ -20,6 +20,13 @@
   <div class="console">
     <section class="card controls" aria-label="Run controls">
       <form id="controls">
+        <label for="run-mode">Run mode</label>
+        <select id="run-mode">
+          <option value="offline">Offline rehearsal · no model calls</option>
+          <option value="live" disabled>Claude Haiku 4.5 · live API</option>
+        </select>
+        <label for="decision-cap">Maximum decisions</label>
+        <input id="decision-cap" type="number" min="1" max="60" step="1" value="25" disabled>
         <label for="command">Fetch command</label>
         <textarea id="command" rows="2" required disabled>Fetch the red sphere and drop it in the green zone</textarea>
         <div class="actions">
@@ -29,6 +36,7 @@
       </form>
       <p id="feedback" role="status"></p>
       <p id="status" class="muted" role="status">Connecting…</p>
+      <ol id="action-log" aria-label="Run progress"></ol>
     </section>
     <div class="feeds">
       <section class="card">

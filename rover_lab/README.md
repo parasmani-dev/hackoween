@@ -20,3 +20,52 @@ python rover_lab/verify.py
 ```
 
 For a port offset, use the URL and runtime directory printed by the launcher. Rover Lab writes generated evidence, camera frames, and simulator logs under `runs/`. The site includes small preview images from a scripted run and Geist fonts under their [SIL Open Font License](site/LICENSE.txt).
+
+## Claude Haiku 4.5 in the new UI
+
+Scenario 1 at `/scenario-1` includes offline and live modes. The default launcher
+keeps live mode disabled. Scenario 2 remains an offline scripted rehearsal.
+To enable Haiku, set `ANTHROPIC_API_KEY` in the local environment or `.env` and run:
+
+```powershell
+./rover_lab/start.ps1 -WebotsExe C:/path/to/webots.exe -EnableLiveAgent
+```
+
+Use `-EnvFile C:/path/to/.env` for an environment file outside this checkout.
+The Haiku client pins `claude-haiku-4-5-20251001` without changing `CLAUDE_MODEL`
+or the OpenAI path. Only the dashboard process receives the Claude credential.
+Enabling the launcher makes no API calls. On Scenario 1 select live mode,
+enter a command and a decision cap (1–60, default 25), then press Start Haiku fetch.
+The server owns Start, agent execution and Finish. Reset and overlapping starts
+are blocked during a run. The page shows the latest five actions and final verdict.
+Live model requests, JSONL/PNG artifacts and private capture metadata are saved
+under the printed runtime directory's `live/attempt-*` folder. Credentials and
+private evaluator/capture fields never enter browser status or model requests.
+
+Before a paid run, run the unit regressions and the offline live-path verifier:
+
+```powershell
+python -B -m unittest agent.test_clients agent.test_runner rover_lab.test_live -v
+# Start Rover Lab WITHOUT -EnableLiveAgent, then use its printed ports:
+python -B -m rover_lab.verify_live_offline --engine-port 18836 --ui-port 8112 --run-dir runs/haiku-ui-offline
+python -B -m rover_lab.verify_navigation_offline --engine-port 18836 --output runs/navigation-camera-offline
+```
+
+For `-PortOffset 300`, the two verifier ports are 19136 and 8412. The verifier
+requires an idle test engine and resets it. It starts a temporary copy of the new
+UI server and mocks the Claude API transport, exercises authenticated Start,
+status, reset, duplicate-start guards and the real camera/engine/recording path,
+then verifies private delivery and exact model-frame matches. Its fixed fixture
+waypoints stay inside the verifier; zero provider calls and zero tokens are used.
+Artifacts are labeled `offline_scripted_transport_stub`. This proves integration,
+not autonomous Haiku navigation. The navigation prompt now calibrates small turns
+to image positions, separates pickup from zone search and handles close targets;
+the runner also rejects immediate repeat moves into a collision. Live delivery
+must be assessed separately after an authorized paid run.
+
+The separate camera-calibration verifier uses red connected components as an
+offline measurement instrument, not as production perception. It checks the
+turn sign against camera pixels, aligns again after each short approach, and
+verifies actual pickup without using private target coordinates. It finishes
+and resets the test engine. This is a pickup rehearsal, not a full delivery or
+evidence of autonomous Haiku decisions.

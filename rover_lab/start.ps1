@@ -5,7 +5,9 @@ param(
     [Parameter(Mandatory)]
     [string]$WebotsExe,
     [ValidateRange(0, 40000)]
-    [int]$PortOffset = 0
+    [int]$PortOffset = 0,
+    [switch]$EnableLiveAgent,
+    [string]$EnvFile
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,6 +15,18 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $webots = (Resolve-Path -LiteralPath $WebotsExe).Path
 $python = (Get-Command python).Source
 $node = (Get-Command node).Source
+if ($EnableLiveAgent) {
+    # Read only the required credential; never print it or pass it on the command line.
+    $dotenv = if ($EnvFile) { $EnvFile } else { Join-Path $repo '.env' }
+    if (Test-Path -LiteralPath $dotenv) {
+        foreach ($line in Get-Content -LiteralPath $dotenv) {
+            if ($line -match '^\s*ANTHROPIC_API_KEY\s*=\s*(.*)$' -and -not $env:ANTHROPIC_API_KEY) {
+                $env:ANTHROPIC_API_KEY = $matches[1].Trim().Trim('"').Trim("'")
+            }
+        }
+    }
+    if (-not $env:ANTHROPIC_API_KEY) { throw 'Set ANTHROPIC_API_KEY in the environment or local .env before enabling live mode.' }
+}
 $sitePort = 8113 + $PortOffset
 $legacyPort = 8112 + $PortOffset
 $runRoot = Join-Path $repo "runs/rover-lab-$sitePort"
@@ -20,6 +34,8 @@ $layoutPath = Join-Path $runRoot 'selected-layout.txt'
 $children = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
 
 function Start-ServiceProcess($Name, $Executable, $Arguments, $Variables) {
+    if (-not $Variables.ContainsKey('ANTHROPIC_API_KEY')) { $Variables.ANTHROPIC_API_KEY = $null }
+    if (-not $Variables.ContainsKey('OPENAI_API_KEY')) { $Variables.OPENAI_API_KEY = $null }
     $process = Start-Process -FilePath $Executable -ArgumentList $Arguments -WorkingDirectory $repo -Environment $Variables -WindowStyle Hidden -PassThru
     $children.Add($process)
     Write-Host "$Name PID $($process.Id)"
@@ -58,6 +74,8 @@ try {
         $preview = Join-Path $scenarioRun 'front.jpg'
         $spectator = Join-Path $scenarioRun 'spectator.jpg'
         $environment = @{
+            ANTHROPIC_API_KEY = $null
+            OPENAI_API_KEY = $null
             ROVER_WEBOTS_PORT = "$bridgePort"
             ROVER_PREVIEW_FILE = $preview
             ROVER_SPECTATOR_FILE = $spectator
@@ -89,6 +107,10 @@ try {
         ROVER_DEMO_LAYOUT = $layoutPath
         ROVER_LAB_RUN_DIR = $runRoot
         ROVER_LAB_SCENARIO_ONE_PORT = "$legacyPort"
+        ROVER_LAB_SCENARIO_ONE_ENGINE = "http://127.0.0.1:$(18836 + $PortOffset)"
+        ROVER_LIVE_ENABLED = $(if ($EnableLiveAgent) { '1' } else { '0' })
+        ANTHROPIC_API_KEY = $(if ($EnableLiveAgent) { $env:ANTHROPIC_API_KEY } else { $null })
+        OPENAI_API_KEY = $null
     }
     $url = "http://127.0.0.1:$sitePort"
     Wait-Ready "$url/"

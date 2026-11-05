@@ -64,6 +64,45 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual([row["tool"] for row in self.records(result)],
                          ["turn", "turn", "turn", "move", "pickup"])
 
+    def test_collision_direction_is_rejected_without_mutation_or_fresh_image(self):
+        self.engine.execute.side_effect = [{"success": False, "collided": True},
+                                           {"success": True, "collided": False}]
+        self.claude.decide.side_effect = [Decision('move', {'distance': 0.5}, {}),
+                                        Decision('move', {'distance': 0.1}, {}),
+                                        Decision('move', {'distance': -0.3}, {})]
+        result = self.run_rover(max_decisions=3)
+        rows = self.records(result)
+        self.assertEqual(rows[1]['result'], {'outcome': 'not_dispatched', 'reason': 'navigation_guard'})
+        self.assertEqual(rows[1]['frame_path'], rows[2]['frame_path'])
+        self.assertEqual(self.engine.execute.call_count, 2)
+        self.assertEqual(self.engine.look.call_count, 3)
+        self.assertIn('move(-0.3)', self.claude.decide.call_args_list[1].kwargs['system'])
+
+    def test_reverse_collision_requires_forward_clearance(self):
+        self.engine.execute.side_effect = [{'success': False, 'collided': True},
+                                           {'success': True, 'collided': False}]
+        self.claude.decide.side_effect = [Decision('move', {'distance': -0.5}, {}),
+                                        Decision('move', {'distance': -0.1}, {}),
+                                        Decision('move', {'distance': 0.3}, {})]
+        result = self.run_rover(max_decisions=3)
+        self.assertEqual(self.records(result)[1]['result']['reason'], 'navigation_guard')
+        self.assertIn('move(0.3)', self.claude.decide.call_args_list[1].kwargs['system'])
+
+    def test_collision_guard_allows_a_new_heading_and_pickup_guidance_reuses_frame(self):
+        self.engine.execute.side_effect = [{'success': False, 'collided': True},
+            {'success': True}, {'success': True, 'collided': False},
+            {'success': False}, {'success': True}]
+        self.claude.decide.side_effect = [Decision('move', {'distance': 0.4}, {}),
+            Decision('turn', {'degrees': 20}, {}), Decision('move', {'distance': 0.2}, {}),
+            Decision('pickup', {}, {}), Decision('pickup', {}, {})]
+        result = self.run_rover(max_decisions=5)
+        rows = self.records(result)
+        self.assertEqual(self.engine.execute.call_count, 5)
+        self.assertEqual(rows[3]['frame_path'], rows[4]['frame_path'])
+        prompt = self.claude.decide.call_args_list[4].kwargs['system']
+        self.assertIn('Pickup failed', prompt)
+        self.assertIn('at most 0.1 m', prompt)
+
     def test_camera_refresh_reuse_and_artifacts(self):
         self.engine.look.side_effect = [jpeg("red"), jpeg("green"), jpeg("blue")]
         self.engine.state.side_effect = [

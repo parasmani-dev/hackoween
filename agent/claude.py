@@ -21,9 +21,9 @@ class Decision:
 
 
 class ClaudeClient:
-    def __init__(self, *, timeout=30, max_tokens=512, audit_request=None):
+    def __init__(self, *, timeout=30, max_tokens=512, audit_request=None, model=None):
         self._api_key = os.environ.get("ANTHROPIC_API_KEY")
-        self.model = os.environ.get("CLAUDE_MODEL")
+        self.model = model or os.environ.get("CLAUDE_MODEL")
         if not self._api_key or not self.model:
             raise ClaudeError("Set ANTHROPIC_API_KEY and CLAUDE_MODEL.")
         if not finite_number(timeout) or timeout <= 0:
