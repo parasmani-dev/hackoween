@@ -100,3 +100,19 @@ reposition at 17, zero contacts, no navigation stall. Perceptions after trajecto
 divergence are recorded test inputs, not current visual truth; delivery remains
 unverified. Report: `runs/search-deadlock-replay-fixed/report.json`.
 92 offline tests and Node syntax check pass. No new provider calls for this fix.
+
+## Requested 50-call validation of 27e849d
+
+Attempt `attempt-c9jj18sr` stopped after 10 requests, `navigation_stalled` /
+`fail_not_reached`. No pickup or delivery, one collision at step 7, three rejected
+proposals at 8-10. Complete POV; all 10 outbound camera images match saved PNGs;
+checked private metadata absent. Usage 42604 input / 1270 output tokens.
+
+The model repeatedly supplied essentially unchanged target bounds. The controller
+converted pickup proposals into approach moves. At depth .150245 m it requested
+.1102 m, within the single-ray clearance bound, but contact still occurred: the ray
+is not full-chassis clearance. After backoff, pickup proposals were again converted
+to .1565 m approaches, which conflict with the collision-direction guard. The
+rejection loop terminated. These safety/approach-controller interactions remain
+unresolved; this run does not pass any pickup/delivery/no-contact acceptance.
+No automatic retry; 40 of the latest 50-call allowance were unused.
