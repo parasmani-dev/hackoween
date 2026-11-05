@@ -76,6 +76,9 @@ class EngineHandler(BaseHTTPRequestHandler):
             elif path == "/look":
                 body = self.control.look()
                 content_type = "image/jpeg"
+            elif path == "/depth":
+                body = json.dumps({"distance": self.control.depth()}, allow_nan=False).encode("utf-8")
+                content_type = "application/json"
             else:
                 self.write_response(404, "application/json", b'{"error":"not_found"}')
                 return

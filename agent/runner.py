@@ -15,6 +15,7 @@ from PIL import Image
 from .claude import ClaudeClient, ClaudeError
 from .engine import ActionOutcomeUncertain, EngineClient, EngineError
 from .openai_client import OpenAIClient, OpenAIError
+from .tools import finite_number
 
 
 MAX_DECISIONS = 60
@@ -26,6 +27,14 @@ SYSTEM_PROMPT = (
     "Match both color and silhouette: spheres are round, cubes have corners, cylinders have upright "
     "sides and cones taper to a tip. While not holding, first approach and pick up the requested object. "
     "Only after pickup succeeds, navigate to the requested zone. "
+    "Avoid all contact, including with the requested target: pickup is a reach action, not a bump. "
+    "When depth is present it is the nearest surface on one forward ray from a sensor 0.27 m "
+    "ahead of the rover center. Leave 0.04 m measured clearance. It gives no object identity "
+    "and does not cover the sides of the chassis. Check the full visible swept path and turn "
+    "toward open floor if another object blocks it. If the selected target is centered and "
+    "depth is at most 0.08 m, try pickup BEFORE any further forward movement. "
+    "If the target is already visible, use the direct small alignment correction, not a "
+    "45-degree search turn that overshoots it. "
     "ALIGNMENT: image left means a negative turn, right a positive turn. For the 640-pixel, "
     "90-degree horizontal field of view, x=160 corresponds to about -27 degrees, x=240 to -14, "
     "x=320 to zero, x=400 to +14 and x=480 to +27. If the target is off-center, make a small "
@@ -207,11 +216,16 @@ def run_command(
                 journal.flush()
 
             for step in range(1, max_decisions + 1):
+                depth_reader = getattr(engine, "depth", None)
+                depth = depth_reader() if callable(depth_reader) else None
+                depth = depth if finite_number(depth) and 0 <= depth <= 10 else None
+                max_forward = max(0.0, depth - 0.04) if depth is not None else None
                 context = json.dumps({
                     "command": command,
                     "state": state,
                     "remaining_decisions": max_decisions - step + 1,
                     "recent_actions": list(history),
+                    **({"depth": depth, "max_forward_distance": max_forward} if depth is not None else {}),
                 }, separators=(",", ":"))
                 decisions = step
                 system = _navigation_prompt(history)
@@ -221,6 +235,10 @@ def run_command(
                            " Your current objective is acquisition: holding is false; align, approach "
                            "and pick up the requested object before navigating to the zone.")
                 system += _recovery_prompt(history)
+                if max_forward is not None:
+                    system += (f" Current forward surface clearance is {depth:.3f} m. "
+                               f"Do not request a positive move beyond {max_forward:.3f} m. "
+                               "If the requested object is centered and close, pick up now rather than bumping it.")
                 failed_manipulations = {
                     name: pose for name, pose in failed_manipulations.items()
                     if not _pose_changed(pose, _pose(state))
@@ -259,7 +277,9 @@ def run_command(
                     and decision.args["distance"] * history[-1]["args"]["distance"] > 0
                     and abs(decision.args["distance"]) > 0.05
                 )
-                if decision.name in disabled or repeats_collision or (decision.name == "turn" and (
+                unsafe_forward = (decision.name == "move" and max_forward is not None
+                                  and decision.args["distance"] > max_forward)
+                if unsafe_forward or decision.name in disabled or repeats_collision or (decision.name == "turn" and (
                     turns_without_progress >= MAX_TURNS_WITHOUT_PROGRESS
                     or (alternating_turns
                         and decision.args["degrees"] * history[-1]["args"]["degrees"] < 0)

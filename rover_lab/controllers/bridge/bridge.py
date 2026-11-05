@@ -29,6 +29,8 @@ class Scene:
         self.drive = RoverDrive(robot)
         self.camera = robot.getDevice("front_camera")
         self.camera.enable(self.drive.timestep)
+        self.range_sensor = robot.getDevice("forward_range")
+        self.range_sensor.enable(self.drive.timestep)
         self.fixture_names = [f"ITEM_{index}" for index in range(1, 7)]
         self.objects = [robot.getFromDef(name) for name in self.fixture_names]
         self.floor_heights = [node.getPosition()[2] for node in self.objects]
@@ -102,6 +104,14 @@ class Scene:
                 stream, "JPEG", quality=90
             )
             return base64.b64encode(stream.getvalue()).decode("ascii")
+
+    def depth(self):
+        # One physical ray, not supervisor object locations. A carried object
+        # occludes this ray; report unavailable rather than treating it as free floor.
+        if self.held is not None:
+            return None
+        value = self.range_sensor.getValue()
+        return float(value) if math.isfinite(value) and 0 <= value < 10 else None
 
     def preview_heartbeat(self):
         # Wall-clock liveness only: idle heartbeats never step simulation/camera.
@@ -264,7 +274,7 @@ class Scene:
 
 def serve(scene, port):
     handlers = {name: getattr(scene, name) for name in
-                ("state", "look", "move", "turn", "pickup", "drop", "reset", "delivered_fixture_key",
+                ("state", "look", "depth", "move", "turn", "pickup", "drop", "reset", "delivered_fixture_key",
                  "start_capture", "finish_capture")}
     with socket.create_server(("127.0.0.1", port)) as listener:
         logging.info("Webots bridge listening on loopback port %s", port)

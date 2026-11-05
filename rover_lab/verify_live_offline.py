@@ -48,13 +48,15 @@ def verify(engine_port, ui_port, run_dir):
         offered = {tool['name'] for tool in payload['tools']}
         if len(requests) == 2:
             assert 'pickup' not in offered, 'Failed pickup was still offered at the same pose'
-        state = json.loads(payload['messages'][0]['content'][0]['text'])['state']
+        context = json.loads(payload['messages'][0]['content'][0]['text'])
+        state = context['state']
         action, target = next(actions)
         if action == 'face':
             name = 'turn'
             args = {'degrees': math.remainder(-math.degrees(math.atan2(target[1]-state['y'], target[0]-state['x'])) - state['heading'], 360)}
         elif action == 'drive':
             name, args = 'move', {'distance': math.hypot(target[0]-state['x'], target[1]-state['y'])}
+            args['distance'] = min(args['distance'], context.get('max_forward_distance', args['distance']))
         else:
             name, args = action, {}
         return 'application/json', json.dumps({'stop_reason': 'tool_use',
@@ -127,6 +129,7 @@ def verify(engine_port, ui_port, run_dir):
             assert record['verdict']['pov_status'] == 'complete', record
             journal = next(live.attempt.glob('run-*/steps.jsonl'))
             rows = [json.loads(line) for line in journal.read_text().splitlines()]
+            assert not any(row['result'].get('collided') for row in rows), 'Contact occurred during delivery'
             assert rows[0]['tool'] == 'pickup' and rows[0]['result'] == {'success': False}
             for req, row in zip(requests, rows, strict=True):
                 raw = req['messages'][0]['content'][1]['source']['data']
@@ -135,6 +138,7 @@ def verify(engine_port, ui_port, run_dir):
                 assert image.size == (640, 480)
                 assert ImageChops.difference(image, frame).getbbox() is None
             report = {'execution_mode': 'offline_scripted_transport_stub', 'provider_calls': 0,
+                      'collisions': 0,
                       'requests_matched_to_frames': len(requests), 'verdict': 'pass',
                       'new_ui_routes': 'passed', 'authentication_and_conflict_checks': 'passed',
                       'capture': record['verdict']['pov_status']}

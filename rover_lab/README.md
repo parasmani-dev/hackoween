@@ -87,3 +87,22 @@ turn sign against camera pixels, aligns again after each short approach, and
 verifies actual pickup without using private target coordinates. It finishes
 and resets the test engine. This is a pickup rehearsal, not a full delivery or
 evidence of autonomous Haiku decisions.
+
+## Forward clearance before pickup
+
+The new scenes include one physical forward range ray, 0.27 m ahead of the rover
+center at 0.17 m height. The launcher opts into `/depth`; older simulator adapters
+keep depth unavailable. The engine serializes range reads with motion and returns
+only a finite metre distance (0–10) or null, never object metadata.
+
+Before dispatch, the agent rejects positive moves exceeding the latest measured
+range minus 0.04 m clearance. Rejections are logged without movement or a new
+image. The prompt asks for direct alignment and a pickup trial before contact.
+No action is silently shortened in production. The offline measurement verifier
+selects its own shorter move within that limit.
+
+This is a centerline clearance guard, not full collision avoidance. Side contacts
+still require camera-based route selection. A carried object occludes the ray,
+so depth is unavailable while holding; camera navigation remains in use. Real
+collision physics and the private evaluator are unchanged. No collision-free
+live success is implied by an offline pass.

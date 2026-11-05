@@ -1,4 +1,5 @@
 import logging
+import math
 from threading import Lock
 
 FIXTURE_KEYS = frozenset(f"item_{number}" for number in range(1, 7))
@@ -37,6 +38,15 @@ class RunControl:
     def look(self):
         with self.adapter_lock:
             return self.adapter.look()
+
+    def depth(self):
+        with self.adapter_lock:
+            read = getattr(self.adapter, "depth", None)
+            value = read() if callable(read) else None
+            if value is not None and (type(value) not in (int, float)
+                                      or not math.isfinite(value) or not 0 <= value <= 10):
+                raise ValueError("Invalid range reading")
+            return value
 
     def execute(self, method, args, response_fields):
         if not self.mutation_lock.acquire(blocking=False):

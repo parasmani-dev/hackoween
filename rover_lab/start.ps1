@@ -85,7 +85,7 @@ try {
         if ($scenario -eq 2) { $environment.ROVER_DEMO_LAYOUT = $layoutPath }
         $world = Join-Path $PSScriptRoot "worlds/scenario-$scenario.wbt"
         Start-ServiceProcess "Webots scenario $scenario" $webots @('--batch', '--minimize', '--mode=realtime', "--port=$instancePort", ('"{0}"' -f $world)) $environment
-        $engineCode = "from engine.server import create_server; from simulation.adapter import WebotsAdapter; create_server(WebotsAdapter(port=$bridgePort), port=$enginePort).serve_forever()"
+        $engineCode = "from engine.server import create_server; from simulation.adapter import WebotsAdapter; create_server(WebotsAdapter(port=$bridgePort, enable_depth=True), port=$enginePort).serve_forever()"
         Start-ServiceProcess "Engine scenario $scenario" $python ('-u -c "{0}"' -f $engineCode) @{}
         Wait-Ready "http://127.0.0.1:$enginePort/state"
         if ($scenario -eq 1) {

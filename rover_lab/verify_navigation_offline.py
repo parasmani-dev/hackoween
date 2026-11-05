@@ -77,8 +77,13 @@ def verify(engine_port, output):
             bottom = [current.getpixel((x, y)) for y in range(475, 480) for x in range(640)]
             clipped = sum(r > 70 and r > 1.5*g and r > 1.5*b for r,g,b in bottom) > 30
             distance = 0.05 if clipped else 0.2 if moves < 3 else 0.1
+            depth = engine.depth()
+            if depth is not None:
+                distance = min(distance, max(0.0, depth - 0.04))
+                assert distance > 0.001, 'At clearance limit but pickup failed; realign instead of forcing contact'
             result = engine.execute('move', {'distance': distance})
-            trace.append({'center_x': center, 'correction': correction, 'move': distance, 'result': result})
+            trace.append({'center_x': center, 'correction': correction, 'depth': depth,
+                          'move': distance, 'result': result})
             assert result['success'] and not result['collided'], result
             moves += 1
             capture(3+index*2)
@@ -87,7 +92,8 @@ def verify(engine_port, output):
         assert engine.state()['holding']
         report = {'execution_mode': 'offline_camera_calibration', 'provider_calls': 0,
                   'before_center_x': before, 'after_center_x': after, 'turn_degrees': degrees,
-                  'short_approaches': moves, 'pickup': 'pass', 'trace': trace}
+                  'short_approaches': moves, 'pickup': 'pass', 'collisions': 0,
+                  'range_samples': sum(row['depth'] is not None for row in trace), 'trace': trace}
         (output / 'navigation-report.json').write_text(json.dumps(report, indent=2))
         print(json.dumps(report, indent=2))
     finally:

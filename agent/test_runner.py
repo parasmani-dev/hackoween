@@ -29,6 +29,25 @@ def state(name="Locate", retry_count=0):
 
 
 class RunnerTests(unittest.TestCase):
+    def test_range_guard_rejects_contact_move_then_allows_direct_pickup(self):
+        self.engine.depth.return_value = 0.07
+        self.engine.state.side_effect = [state(), {**state('Carry'), 'holding': True}]
+        self.claude.decide.side_effect = [Decision('move', {'distance': 0.2}, {}),
+                                        Decision('pickup', {}, {})]
+        result = self.run_rover(max_decisions=2)
+        rows = self.records(result)
+        self.assertEqual(rows[0]['result']['outcome'], 'not_dispatched')
+        self.engine.execute.assert_called_once_with('pickup', {})
+        self.assertEqual(self.engine.look.call_count, 1)
+        self.assertEqual(rows[0]['frame_path'], rows[1]['frame_path'])
+
+    def test_range_guard_allows_short_move_with_clearance(self):
+        self.engine.depth.return_value = 0.10
+        self.claude.decide.return_value = Decision('move', {'distance': 0.05}, {})
+        result = self.run_rover(max_decisions=1)
+        self.engine.execute.assert_called_once_with('move', {'distance': 0.05})
+        self.assertEqual(self.records(result)[0]['result'], {'success': True})
+
     def setUp(self):
         self.temp = TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
