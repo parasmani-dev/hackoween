@@ -833,7 +833,7 @@ DEF ROVER Robot {
 
 Robot {
   translation 1.25 -7.45 7.45
-  rotation 0 0 1 1.734445112
+  rotation 0 0 1 1.766
   name "operator arena camera"
   supervisor TRUE
   controller "spectator"
@@ -843,7 +843,7 @@ Robot {
       name "overhead"
       width 1280
       height 960
-      fieldOfView 0.86
+      fieldOfView 0.81
       antiAliasing TRUE
     }
   ]
