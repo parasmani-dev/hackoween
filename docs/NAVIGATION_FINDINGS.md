@@ -32,3 +32,13 @@ perception schema. Model-only fields are removed before engine dispatch.
   image audit separately. It does not validate model recognition.
 - One additional live Haiku run, maximum 50 requests, is authorized for this phase.
   Its result must be recorded independently; do not infer live success from mocks.
+
+## API schema preflight failure
+
+The first request in `attempt-h6sr31zx` failed before any rover mutation. The new
+array schema used minItems=4/maxItems=4, which Anthropic strict tools do not support.
+Removed provider-side length constraints and retained exact-four-element local
+validation. Added a schema regression. Reference:
+https://platform.claude.com/docs/en/build-with-claude/structured-outputs
+This aborted preflight request counts against the 50-call test allowance; the
+continuation is capped at 49 calls, with both records retained.

@@ -41,8 +41,7 @@ def tool_definitions(available_actions=None, *, visual_memory=False):
             schema['properties']['target_view'] = {
                 'type': 'object', 'additionalProperties': False,
                 'properties': {
-                    'box': {'anyOf': [{'type': 'array', 'items': {'type': 'number'},
-                                     'minItems': 4, 'maxItems': 4}, {'type': 'null'}],
+                    'box': {'anyOf': [{'type': 'array', 'items': {'type': 'number'}}, {'type': 'null'}],
                             'description': 'CURRENT image target bounds [left,top,right,bottom] in 640x480, null if absent. While holding, bounds of requested FLOOR zone, never held object or wall trim.'},
                     'path_clear': {'type': 'boolean', 'description': 'Visible swept path toward target is clear of other objects, including clearance for carried object.'},
                     'floor_zone': {'type': 'boolean', 'description': 'True only when the requested drop zone is visibly a bounded patch on horizontal floor, not wall trim.'}},

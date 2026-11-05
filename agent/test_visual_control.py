@@ -1,10 +1,16 @@
 import unittest
 from agent.claude import Decision
-from agent.tools import extract_target_view
+from agent.tools import extract_target_view, tool_definitions
 from agent.visual_control import correct_action
 
 
 class VisualControlTests(unittest.TestCase):
+    def test_strict_schema_avoids_unsupported_provider_constraints(self):
+        import json
+        schema = json.dumps(tool_definitions(visual_memory=True))
+        self.assertNotIn('minItems', schema)
+        self.assertNotIn('maxItems', schema)
+
     def proposal(self, name='pickup', args=None, box=None, floor=False, clear=True):
         return Decision(name, args or {}, {}, '',
                         {'box': box, 'path_clear': clear, 'floor_zone': floor})
