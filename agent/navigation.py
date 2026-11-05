@@ -50,7 +50,7 @@ class NavigationMemory:
             self.views.popitem(last=False)
         self.current_cell = cell
 
-    def rejection(self, name, args, state, frame):
+    def rejection(self, name, args, state, frame, *, probe_limit=MAX_PICKUP_PROBE):
         if name == "pickup" and state["holding"]:
             return "already_holding"
         if name == "pickup" and self.target_base == "visible":
@@ -76,7 +76,7 @@ class NavigationMemory:
         if distance == 0:
             return "move_requires_progress"
         if distance > 0 and self.approaching(state):
-            if distance > MAX_PICKUP_PROBE:
+            if distance > probe_limit:
                 return "near_target_step_too_large"
         direction = state["heading"] + (180 if distance < 0 else 0)
         angle_radians = math.radians(direction)
@@ -191,6 +191,7 @@ class NavigationMemory:
 
 
 REJECTION_GUIDANCE = {
+    "drop_outside_observed_zone": "The held object's release point is outside the floor zone observed by the camera. Keep holding it, align with the observed zone interior, and approach before dropping. Follow the current camera and collision guards.",
     "pickup_base_still_visible": "The visible floor contact means the target is still beyond pickup reach for this calibrated camera. Advance cautiously along clear floor and reassess. Use tiny pickup probes after its base becomes clipped, not while still far away.",
     "already_holding": "The rover is already holding an object. Locate the drop zone and deliver it.",
     "nothing_to_drop": "Nothing is held. Find and pick up the requested target before dropping.",

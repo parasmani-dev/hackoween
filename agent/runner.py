@@ -17,6 +17,8 @@ from .openai_client import OpenAIClient, OpenAIError
 from .navigation import MAX_PICKUP_PROBE, NavigationMemory, REJECTION_GUIDANCE
 from .observations import VisualMemory
 from .tracking import ApproachTracker
+from .approach import FloorApproach
+from .delivery import GreenDropZone
 
 
 MAX_DECISIONS = 60
@@ -30,6 +32,7 @@ RECOVERY_TOOLS = {
     "near_target_step_too_large": ("move",),
     "previously_blocked_approach": ("move", "turn"),
     "pickup_check_required": ("pickup",),
+    "drop_outside_observed_zone": ("move", "turn"),
 }
 SYSTEM_PROMPT = (
     "Control the rover to complete the operator's fetch command. Choose one action per decision. "
@@ -195,12 +198,16 @@ def run_command(
     visual_memory = VisualMemory()
     last_rejection = None
     tracker = ApproachTracker() if local_pickup_checks else None
+    floor_approach = FloorApproach() if local_pickup_checks else None
+    delivery = GreenDropZone(command) if local_pickup_checks else None
     local_approach_probes = 0
 
-    def reset_tracking():
+    def reset_tracking(*, keep_range=False):
         nonlocal local_approach_probes
         if tracker is not None:
             tracker.reset()
+        if floor_approach is not None and not keep_range:
+            floor_approach.reset()
         local_approach_probes = 0
 
     try:
@@ -222,6 +229,8 @@ def run_command(
                 journal.flush()
 
             for step in range(1, max_decisions + 1):
+                if delivery is not None and state["holding"]:
+                    delivery.observe(run_dir / frame_name, state)
                 context = json.dumps({
                     "command": command,
                     "state": state,
@@ -230,6 +239,8 @@ def run_command(
                 }, separators=(",", ":"))
                 decisions = step
                 system = _navigation_prompt(history) + navigation.guidance() + visual_memory.guidance()
+                if delivery is not None:
+                    system += delivery.guidance(state)
                 alternating_turns = _alternating_turns(history)
                 if rejected_proposals:
                     system += (
@@ -243,6 +254,7 @@ def run_command(
                     and state["state"] != "Blocked" and not state["holding"]
                 )
                 local_probe = False
+                probe_distance = MAX_PICKUP_PROBE
                 if not local_check and tracker is not None and tracker.active:
                     if (local_approach_probes >= MAX_LOCAL_APPROACH_PROBES
                             or state["state"] == "Blocked" or state["holding"]
@@ -251,7 +263,13 @@ def run_command(
                     elif (history and history[-1]["tool"] == "pickup"
                           and not history[-1]["result"]["success"]):
                         if tracker.update(run_dir / frame_name):
-                            local_probe = True
+                            measured_step = floor_approach.distance(run_dir / frame_name, state)
+                            if measured_step == 0:
+                                reset_tracking()
+                            else:
+                                probe_distance = (MAX_PICKUP_PROBE if measured_step is None
+                                                  else measured_step)
+                                local_probe = True
                         else:
                             reset_tracking()
                 source = ("local_pickup_check" if local_check else
@@ -270,7 +288,7 @@ def run_command(
                     # decision with no new model request or scene information.
                     decision = Decision("pickup", {}, {})
                 elif local_probe:
-                    decision = Decision("move", {"distance": MAX_PICKUP_PROBE}, {})
+                    decision = Decision("move", {"distance": probe_distance}, {})
                 else:
                     try:
                         options = {"system": system}
@@ -293,8 +311,29 @@ def run_command(
                     with (run_dir / "observations.jsonl").open("a", encoding="utf-8") as observations:
                         observations.write(json.dumps(observation) + "\n")
 
+                early_drop = (delivery is not None and delivery.known
+                              and state["holding"] and state["state"] != "Blocked"
+                              and decision.name == "drop" and not delivery.ready(state))
+                if early_drop:
+                    correction = delivery.correction(state)
+                    if correction is not None:
+                        name, args = correction
+                        with (run_dir / "adjustments.jsonl").open("a", encoding="utf-8") as adjustments:
+                            adjustments.write(json.dumps({
+                                "step": step, "reason": "drop_outside_observed_zone",
+                                "proposed_tool": decision.name, "proposed_args": decision.args,
+                                "applied_tool": name, "applied_args": args,
+                                "frame_path": frame_name,
+                            }) + "\n")
+                        decision = Decision(name, args, decision.usage, decision.observation)
+                        early_drop = False
                 timestamp = datetime.now(timezone.utc).isoformat()
-                rejection = navigation.rejection(decision.name, decision.args, state, frame_name)
+                rejection = navigation.rejection(
+                    decision.name, decision.args, state, frame_name,
+                    probe_limit=probe_distance if local_probe else MAX_PICKUP_PROBE,
+                )
+                if early_drop:
+                    rejection = "drop_outside_observed_zone"
                 if decision.name == "turn" and (
                     turns_without_progress >= MAX_TURNS_WITHOUT_PROGRESS
                     or (alternating_turns
@@ -318,6 +357,10 @@ def run_command(
 
                 rejected_proposals = 0
                 action_frame_name = frame_name
+                if (floor_approach is not None and source == "model"
+                        and decision.name == "move" and decision.args["distance"] > 0
+                        and not state["holding"] and not navigation.repositioning):
+                    floor_approach.observe(run_dir / frame_name, state, navigation.target_base)
                 try:
                     result = engine.execute(decision.name, decision.args)
                 except ActionOutcomeUncertain:
@@ -349,7 +392,7 @@ def run_command(
                           and pickup_base == "clipped" and not navigation.repositioning
                           and not next_state["holding"]
                           and next_state["state"] != "Blocked"):
-                        reset_tracking()
+                        reset_tracking(keep_range=True)
                         if not tracker.start(run_dir / action_frame_name):
                             reset_tracking()
                     if local_probe and result["success"] and not result.get("collided"):

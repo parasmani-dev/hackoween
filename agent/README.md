@@ -31,7 +31,7 @@ fine alignment once the base is clipped, and asks for a broad-face approach to
 cubes rather than driving into a corner. Recovery retains both movement and
 turning so a blocked side route can be scanned further; the directional guards
 still reject reversing a detour or driving back into known contact.
-After a failed pickup on the same approach, forward probes are limited to 0.02 m
+After a failed pickup on the same approach, model-proposed forward probes are limited to 0.02 m
 and a pickup check is required before another forward probe. Pose change is
 checked so no-op turns or new filenames cannot unlock duplicate pickups. Turns
 of 2 degrees or less, pickup while holding, and drop without holding are rejected.
@@ -49,12 +49,28 @@ credential markers are discarded. Visual memory resets with each command.
 
 The CLI and local website enable a hybrid approach profile: Claude/OpenAI handles
 visual navigation; a bounded local controller tracks a clipped target and runs
-2 cm approach probes with pickup feedback. Acquisition requires explicit clipped
+approach probes with pickup feedback. Acquisition requires explicit clipped
 base evidence and a confident, centered foreground component. The controller
 checks visual continuity after each advance and returns control to the model on
 tracking loss, ambiguity, contact, a turn, or a 12-probe batch limit. It uses only
 camera pixels and public action feedback, with no target positions or evaluator
 data. Low-saturation or untrackable objects remain under model control.
+
+When an earlier frame explicitly shows actual floor contact, the controller can
+project that point using camera calibration and track it through public rover
+motion. With continuous visual association, it uses advances up to 10 cm while
+farther away, then returns to 2 cm final probes. Pixel/pose uncertainty, body
+clearance, and expected image growth bound each advance. A pickup check follows
+every move. Without a trustworthy floor anchor it retains the 2 cm behavior.
+
+For an explicitly requested green zone, this hybrid Rover Lab profile also
+remembers the camera-observed marked floor polygon through occlusion. It uses
+the Rover Lab 0.60 m attachment calibration and requires the release point to be
+20 cm inside that observed region. An early drop proposal becomes a short
+alignment or approach correction, subject to the normal motion guards.
+`adjustments.jsonl` preserves the original proposal and applied action; its
+provider invocation still counts in `model_requests`. This floor-zone helper
+does not identify other zone colors or certify arbitrary obstacle routes.
 
 All local actions still count toward the 60-decision limit. `model_requests`
 counts provider invocations separately. `decision_sources.jsonl` identifies
