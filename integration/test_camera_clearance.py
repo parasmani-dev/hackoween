@@ -3,6 +3,9 @@ import unittest
 from PIL import Image
 
 from integration.camera_clearance import observed_clearance
+from integration.check_reset_clearance import (
+    CARRY_RADIUS, CELL_SIZE, CORRIDOR, EMPTY_RADIUS, GOAL, reset_route,
+)
 
 
 class CameraClearanceTests(unittest.TestCase):
@@ -19,3 +22,20 @@ class CameraClearanceTests(unittest.TestCase):
         self.assertEqual(
             observed_clearance(frame, {(10, 0)}, cell_size=0.2, radius=0.35), set(),
         )
+
+    def test_floor_colored_obstacle_requires_independent_sweep_evidence(self):
+        # A floor-colored obstacle can produce the same pixels as the floor.
+        frame = Image.new("RGB", (640, 480), (158, 157, 155))
+        visible = observed_clearance(
+            frame, CORRIDOR, cell_size=CELL_SIZE, radius=EMPTY_RADIUS,
+        )
+        self.assertIn(GOAL, visible)
+        self.assertIsNone(reset_route(
+            visible, surveyed_corridor=CORRIDOR - {(6, 0)}, radius=EMPTY_RADIUS,
+        ))
+        self.assertIsNone(reset_route(
+            visible, surveyed_corridor=CORRIDOR, radius=CARRY_RADIUS,
+        ))
+        self.assertIsNotNone(reset_route(
+            visible, surveyed_corridor=CORRIDOR, radius=EMPTY_RADIUS,
+        ))
