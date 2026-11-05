@@ -15,8 +15,22 @@ from urllib.request import Request, urlopen
 DASHBOARD = "http://127.0.0.1:8113"
 SCENARIO_ONE = "http://127.0.0.1:8112"
 PORT = int(os.environ.get("PORT", "10000"))
-ORIGIN = os.environ.get("RENDER_EXTERNAL_URL", f"http://127.0.0.1:{PORT}").rstrip("/")
 ROOT = Path(os.environ["ROVER_LAB_RUN_DIR"])
+
+
+def allowed_origins(port):
+    public_url = os.environ.get("ROVER_PUBLIC_URL") or os.environ.get("RENDER_EXTERNAL_URL")
+    if public_url:
+        parsed = urlsplit(public_url)
+        if (parsed.scheme not in ("http", "https") or not parsed.hostname
+                or parsed.username is not None or parsed.password is not None
+                or parsed.path not in ("", "/") or parsed.query or parsed.fragment):
+            raise ValueError("Public URL must be an HTTP(S) origin without credentials or a path")
+        return {f"{parsed.scheme}://{parsed.netloc}"}
+    return {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
+
+
+ORIGINS = allowed_origins(PORT)
 
 
 class Simulator:
@@ -151,7 +165,7 @@ class Gateway(BaseHTTPRequestHandler):
         self.forward()
 
     def do_POST(self):
-        if self.headers.get("Origin") != ORIGIN:
+        if self.headers.get("Origin") not in ORIGINS:
             return self.error(403, "Origin rejected")
         try:
             size = int(self.headers.get("Content-Length", "0"))
@@ -176,4 +190,5 @@ class Gateway(BaseHTTPRequestHandler):
             super().log_message(format, *args)
 
 
-ThreadingHTTPServer(("0.0.0.0", PORT), Gateway).serve_forever()
+if __name__ == "__main__":
+    ThreadingHTTPServer(("0.0.0.0", PORT), Gateway).serve_forever()
