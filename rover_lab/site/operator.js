@@ -6,6 +6,7 @@ const command = byId('command');
 const cap = byId('decision-cap');
 const start = byId('start');
 const reset = byId('reset');
+const runSummary = byId('run-summary');
 let snapshot = null;
 let pending = false;
 let runMode = null;
@@ -53,6 +54,8 @@ function render() {
       byId('feedback').textContent = `${phase} · ${snapshot.live.decisions ?? 0} / ${snapshot.live.max_decisions ?? cap.value} decisions`;
     } else if (runMode === 'live' && result) {
       const notes = [];
+      if (result.status === 'navigation_stalled') notes.push('Run stopped: navigation could not make progress after repeated blocked proposals. It is not still running. Reset layout before a new run.');
+      if (result.status === 'decision_limit') notes.push('Run stopped at the configured call limit. Reset layout before a new run.');
       if (result.finish_confirmed === false) notes.push('Finish unconfirmed; check the engine before resetting.');
       if (result.status === 'artifact_error') notes.push('Run evidence could not be saved.');
       if (result.capture_status && result.capture_status !== 'complete') notes.push('Recording is incomplete or unconfirmed.');
@@ -62,6 +65,7 @@ function render() {
         fail: 'Offline rehearsal failed. Check the local logs.', idle: ''}[snapshot.offline.status] || '';
     }
   }
+  if (runSummary) runSummary.textContent = byId('feedback').textContent || (snapshot ? 'Ready. Start a run using the controls above.' : 'Connecting to run status...');
 }
 
 mode.addEventListener('change', () => {

@@ -62,6 +62,31 @@ class VisualControlTests(unittest.TestCase):
                                depth=3,history=history)
         self.assertEqual(actual.args,{'degrees':45})
 
+    def test_full_delivery_scan_repositions_instead_of_turn_deadlock(self):
+        history=[{'tool':'turn','args':{'degrees':45},'result':{'success':True}}] * 8
+        for name,args in [('move',{'distance':.2}),('turn',{'degrees':-45})]:
+            actual,reason=correct_action(self.proposal(name,args),holding=True,depth=None,history=history)
+            self.assertEqual((actual.name,actual.args),('move',{'distance':.15}))
+            self.assertEqual(reason,'reposition_after_full_zone_scan')
+        for kwargs in ({'clear':False}, {'allow_exploration':False}):
+            actual,_=correct_action(self.proposal('move',{'distance':.2},clear=kwargs.get('clear',True)),
+                holding=True,depth=None,history=history,allow_exploration=kwargs.get('allow_exploration',True))
+            self.assertEqual(actual.name,'turn')
+
+    def test_delivery_scan_direction_is_consistent_and_translation_resets_sweep(self):
+        history=[{'tool':'turn','args':{'degrees':45},'result':{'success':True}}] * 5
+        actual,_=correct_action(self.proposal('turn',{'degrees':-45}),holding=True,depth=None,history=history)
+        self.assertEqual(actual.args,{'degrees':45})
+        history += [{'tool':'move','args':{'distance':.15},'result':{'success':True}}]
+        actual,_=correct_action(self.proposal('move',{'distance':.2}),holding=True,depth=None,history=history)
+        self.assertEqual(actual.name,'turn')
+
+    def test_approach_rounding_never_exceeds_range_guard(self):
+        actual,_=correct_action(self.proposal('pickup',{},[280,300,360,380]),
+                               holding=False,depth=.14785)
+        self.assertEqual(actual.name,'move')
+        self.assertLessEqual(actual.args['distance'],.14785-.04)
+
     def test_disabled_pickup_cannot_be_reintroduced(self):
         actual,_=correct_action(self.proposal('move',{'distance':.01},[220,300,420,480]),
                                holding=False,depth=.06,disabled=['pickup'])

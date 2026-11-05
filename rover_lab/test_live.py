@@ -151,7 +151,7 @@ class Element {
   replaceChildren(...children) { this.children = children; }
 }
 const elements = Object.fromEntries(['run-mode','command','decision-cap','start','reset','mode','status',
-  'feedback','controls','action-log','camera','camera-note'].map(id => [id, new Element()]));
+  'feedback','controls','action-log','camera','camera-note','run-summary'].map(id => [id, new Element()]));
 elements['run-mode'].value = 'offline'; elements['decision-cap'].value = '25';
 let data = {
   '/state': {state:'Locate', holding:false, retry_count:0},
@@ -179,6 +179,11 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
   await flush();
   assert.equal(elements['run-mode'].value,'live');
   assert.match(elements.feedback.textContent,/fail_not_reached.*25 decisions/);
+  data['/live/status'].result.status='navigation_stalled';
+  await vm.runInContext('refresh()',context);
+  assert.match(elements['run-summary'].textContent,/Run stopped: navigation/);
+  assert.equal(elements.reset.disabled,false);
+  assert.equal(calls.filter(c=>c.options.method==='POST').length,0);
   // A response to a poll begun before a lifecycle action must not overwrite that action's UI.
   vm.runInContext("refresh(); revision += 1; byId('feedback').textContent='Newer action';",context);
   await flush();

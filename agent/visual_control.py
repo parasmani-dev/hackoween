@@ -8,7 +8,7 @@ import math
 from dataclasses import replace
 
 
-def correct_action(decision, *, holding, depth, disabled=(), history=()):
+def correct_action(decision, *, holding, depth, disabled=(), history=(), allow_exploration=True):
     view = decision.target_view
     if view is None:  # Existing injected policies remain compatible.
         return decision, None
@@ -22,8 +22,30 @@ def correct_action(decision, *, holding, depth, disabled=(), history=()):
         return replace(decision, name=name, args=args), reason
 
     if holding and (box is None or not view['floor_zone']):
-        if forward or decision.name == 'drop':
-            return use('turn', {'degrees': 45}, 'search_for_visible_floor_zone')
+        # A full rotation can leave the floor zone occluded by the carried load.
+        # Repeating the same view indefinitely conflicts with the runner's turn cap.
+        sweep = 0.0
+        direction = None
+        for action in reversed(history):
+            if action['tool'] != 'turn' or not action['result'].get('success'):
+                break
+            angle = action['args']['degrees']
+            if not angle:
+                continue
+            sign = 1 if angle > 0 else -1
+            if direction is None:
+                direction = sign
+            if sign != direction:
+                break
+            sweep += abs(angle)
+        if (sweep >= 350 and view['path_clear'] and allow_exploration
+                and (forward or decision.name in ('turn', 'drop'))):
+            distance = min(.15, max(0, depth - .04)) if depth is not None else .15
+            if distance >= .02:
+                return use('move', {'distance': math.floor(distance * 10000) / 10000},
+                           'reposition_after_full_zone_scan')
+        if forward or decision.name in ('turn', 'drop'):
+            return use('turn', {'degrees': 45 * (direction or 1)}, 'search_for_visible_floor_zone')
         return decision, None
     if box is None:
         previous_turn = next((a['args']['degrees'] for a in reversed(history)
@@ -73,9 +95,9 @@ def correct_action(decision, *, holding, depth, disabled=(), history=()):
         if depth is not None:
             step = min(step, max(0, depth - .04))
         if step > .005:
-            return use('move', {'distance': round(step, 4)}, 'approach_before_premature_pickup')
+            return use('move', {'distance': math.floor(step * 10000) / 10000}, 'approach_before_premature_pickup')
     if forward and depth is not None and decision.args['distance'] > max(0, depth - .04):
         step = max(0, depth - .045)
         if step > .005:
-            return use('move', {'distance': round(min(.2, step), 4)}, 'range_bounded_approach')
+            return use('move', {'distance': math.floor(min(.2, step) * 10000) / 10000}, 'range_bounded_approach')
     return decision, None

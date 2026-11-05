@@ -78,3 +78,25 @@ before blind forward travel with distant/absent depth, and keeps absent-target
 search direction consistent. Added exact regressions; 89 tests pass. These fixes
 have NOT had another live run. Perception accuracy and delivery remain open;
 this is not a successful or perfect autonomous build.
+
+## Screenshot stall: successful pickup followed by delivery-search deadlock
+
+The user's later UI-started `attempt-8o68upm0` picked up at decision 8.
+The delivery controller then converted proposed moves into search turns whenever
+the floor zone was unrecognized. Direction reversals repeated views; 12 consecutive
+turns reached the runner limit. Decisions 21-23 were rejected, and the run ended
+`navigation_stalled`. The simulator was not frozen. The matching run was served on
+8613; the ambient browser's older 8413 URL was not evidence of this run's origin.
+
+Fix: keep scan direction consistent; after a full scan, permit a maximum 0.15 m
+reposition only on a model-reported clear path and outside a known blocked heading.
+Keep depth clearance, turn limits, failed-action checks and total decision caps.
+Also floor derived motion distances to avoid rounding above the depth guard.
+Show an explicit stopped-run message beside the camera feeds, including reset
+instructions; a terminal run is never described as still executing.
+
+Offline saved-proposal replay: all 23 decisions execute, successful pickup,
+reposition at 17, zero contacts, no navigation stall. Perceptions after trajectory
+divergence are recorded test inputs, not current visual truth; delivery remains
+unverified. Report: `runs/search-deadlock-replay-fixed/report.json`.
+92 offline tests and Node syntax check pass. No new provider calls for this fix.
