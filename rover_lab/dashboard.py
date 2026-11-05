@@ -262,6 +262,7 @@ class Demo:
 def create_server(port, engine_port):
     demo = Demo(f"http://127.0.0.1:{engine_port}")
     live = LiveRun(os.environ.get("ROVER_LAB_SCENARIO_ONE_ENGINE", "http://127.0.0.1:18836"), RUN_DIR / "live")
+    scenario_one_lifecycle = threading.Lock()
     jury_token = secrets.token_urlsafe(32)
 
     class Handler(BaseHTTPRequestHandler):
@@ -390,27 +391,9 @@ def create_server(port, engine_port):
                 return self.reply({}, status=400)
             if self.path.startswith(SCENARIO_ONE_API + "/"):
                 upstream = self.path.removeprefix(SCENARIO_ONE_API)
-                if upstream in {"/live/start", "/live/reset"}:
-                    try:
-                        with urlopen(SCENARIO_ONE_ORIGIN + "/offline-demo", timeout=3) as response:
-                            offline_status = json.load(response)
-                        if offline_status.get("status") == "running":
-                            return self.reply({"error": "Offline rehearsal already active"}, status=409)
-                        if upstream == "/live/start":
-                            live.start(data.get("command"), data.get("max_decisions"))
-                            return self.reply({"state": "Locate"}, status=202)
-                        return self.reply(live.reset())
-                    except ValueError as error:
-                        return self.reply({"error": str(error)}, status=400)
-                    except RuntimeError as error:
-                        return self.reply({"error": str(error)}, status=409)
-                    except Exception:
-                        return self.reply({"error": "Live request could not be confirmed."}, status=502)
-                if live.status()["running"] and upstream in SCENARIO_ONE_POST:
-                    return self.reply({"error": "Live run already active"}, status=409)
-                if upstream in SCENARIO_ONE_POST:
-                    return self.scenario_one(upstream, json.dumps(data).encode())
-                return self.reply({}, status=404)
+                # Reservation/check/forward must be atomic across old and new tabs.
+                with self.server.scenario_one_lifecycle:
+                    return self.scenario_one_mutation(upstream, data)
             with demo.lock:
                 if demo.running:
                     return self.reply({"error": "Run already active"}, status=409)
@@ -449,12 +432,36 @@ def create_server(port, engine_port):
                     return self.reply({}, status=404)
             self.reply({"ok": True})
 
+        def scenario_one_mutation(self, upstream, data):
+            if upstream in {"/live/start", "/live/reset"}:
+                try:
+                    with urlopen(SCENARIO_ONE_ORIGIN + "/offline-demo", timeout=3) as response:
+                        offline_status = json.load(response)
+                    if offline_status.get("status") == "running":
+                        return self.reply({"error": "Offline rehearsal already active"}, status=409)
+                    if upstream == "/live/start":
+                        live.start(data.get("command"), data.get("max_decisions"))
+                        return self.reply({"state": "Locate"}, status=202)
+                    return self.reply(live.reset())
+                except ValueError as error:
+                    return self.reply({"error": str(error)}, status=400)
+                except RuntimeError as error:
+                    return self.reply({"error": str(error)}, status=409)
+                except Exception:
+                    return self.reply({"error": "Live request could not be confirmed."}, status=502)
+            if live.status()["running"] and upstream in SCENARIO_ONE_POST:
+                return self.reply({"error": "Live run already active"}, status=409)
+            if upstream in SCENARIO_ONE_POST:
+                return self.scenario_one(upstream, json.dumps(data).encode())
+            return self.reply({}, status=404)
+
         def log_message(self, format, *args):
             if self.command == "POST":
                 super().log_message(format, *args)
 
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.live_run = live
+    server.scenario_one_lifecycle = scenario_one_lifecycle
     return server
 
 
