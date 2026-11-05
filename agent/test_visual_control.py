@@ -39,6 +39,13 @@ class VisualControlTests(unittest.TestCase):
                                holding=False,depth=.06)
         self.assertEqual(actual.name,'pickup')
 
+    def test_near_clipped_target_uses_pickup_tolerance_before_alignment(self):
+        # Exact live decision 12: correcting this box caused turn contact.
+        for name,args in [('pickup',{}),('move',{'distance':.05})]:
+            actual,_=correct_action(self.proposal(name,args,[0,200,480,480]),
+                                   holding=False,depth=.064)
+            self.assertEqual(actual.name,'pickup')
+
     def test_disabled_pickup_cannot_be_reintroduced(self):
         actual,_=correct_action(self.proposal('move',{'distance':.01},[220,300,420,480]),
                                holding=False,depth=.06,disabled=['pickup'])

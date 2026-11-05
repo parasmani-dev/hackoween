@@ -326,7 +326,10 @@ def run_command(
                                   and decision.args["distance"] > max_forward)
                 blocked_carry = (blocked_carry_heading is not None and decision.name == 'move'
                                  and decision.args['distance'] > 0)
-                if blocked_carry or unsafe_forward or decision.name in disabled or repeats_collision or (decision.name == "turn" and (
+                repeats_failed_turn = (decision.name == 'turn' and history
+                    and history[-1]['tool'] == 'turn' and not history[-1]['result']['success']
+                    and decision.args['degrees'] * history[-1]['args']['degrees'] > 0)
+                if repeats_failed_turn or blocked_carry or unsafe_forward or decision.name in disabled or repeats_collision or (decision.name == "turn" and (
                     turns_without_progress >= MAX_TURNS_WITHOUT_PROGRESS
                     or (alternating_turns
                         and decision.args["degrees"] * history[-1]["args"]["degrees"] < 0)

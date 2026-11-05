@@ -42,3 +42,21 @@ validation. Added a schema regression. Reference:
 https://platform.claude.com/docs/en/build-with-claude/structured-outputs
 This aborted preflight request counts against the 50-call test allowance; the
 continuation is capped at 49 calls, with both records retained.
+
+## Live controller finding and verified repair
+
+Continuation `attempt-2dsysxiv` ended after 17 decisions with `fail_collision`.
+At decision 12, the reported box [0,200,480,480] and depth .064 m warranted pickup
+within the 30-degree grasp tolerance. The controller incorrectly applied its
+10-degree driving alignment threshold first, producing extra near-target turns.
+Repeated failed-turn proposals were also not blocked. These are controller bugs,
+not evidence that prompt quality alone is the problem.
+
+Repairs: near-target pickup now has priority within the grasp tolerance; the runner
+rejects repeating a failed turn in the same direction. Added both regressions.
+Exact saved AI proposal/perception replay in Webots now reaches pickup at decision
+12, exactly one pickup attempt, zero contacts, zero model calls. Evidence:
+`runs/ai-trace-pickup-fixed/report.json`. Replay is explicitly not a new live test
+and does not test delivery. Combined requests so far: one aborted schema request
+plus 17 continuation decisions = 18. Further live validation awaits permission to
+use the remaining 32 calls as an additional run.

@@ -29,6 +29,11 @@ def correct_action(decision, *, holding, depth, disabled=()):
         return decision, None
     center = (box[0] + box[2]) / 2
     bearing = math.degrees(math.atan((center - 320) / 320))
+    # Pickup tolerates 30 degrees. Near-field boxes are clipped and their
+    # midpoint is less reliable; never demand driving alignment before grasp.
+    if (not holding and box[3] >= 475 and depth is not None and depth <= .08
+            and abs(bearing) <= 30 and (forward or decision.name == 'pickup')):
+        return use('pickup', {}, 'near_target_pickup_before_contact')
     if abs(bearing) > 10 and (forward or reaching):
         return use('turn', {'degrees': round(max(-25, min(25, bearing)), 2)},
                    'align_to_reported_target')

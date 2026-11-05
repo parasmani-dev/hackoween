@@ -89,6 +89,14 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(self.engine.execute.call_count, 2)
         self.assertEqual(self.records(result)[2]['result']['outcome'], 'not_dispatched')
 
+    def test_failed_turn_cannot_be_repeated_in_same_direction(self):
+        self.engine.execute.return_value = {'success': False}
+        self.claude.decide.side_effect = [Decision('turn', {'degrees': -12}, {}),
+                                         Decision('turn', {'degrees': -12}, {})]
+        result = self.run_rover(max_decisions=2)
+        self.engine.execute.assert_called_once()
+        self.assertEqual(self.records(result)[1]['result']['outcome'], 'not_dispatched')
+
     def setUp(self):
         self.temp = TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

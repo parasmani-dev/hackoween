@@ -15,7 +15,7 @@ from rover_lab.live import LiveRun
 from rover_lab.verify_navigation_offline import sphere_center
 
 
-def verify(port, output):
+def verify(port, output, replay_journal=None):
     output=Path(output)
     engine=EngineClient(f'http://127.0.0.1:{port}')
     operator=LiveRun(engine.base_url, output)
@@ -29,8 +29,13 @@ def verify(port, output):
         look=engine.look
         depth=engine.depth
         execute=engine.execute
+    replay = iter(json.loads(line) for line in Path(replay_journal).read_text().splitlines()) if replay_journal else None
     class PixelInstrument:
         def decide(self,messages,*,system):
+            if replay is not None:
+                row = next(replay)
+                return Decision(row['proposal']['tool'], row['proposal']['args'], {},
+                                row['visual_observation'], row['target_view'])
             image=Image.open(io.BytesIO(base64.b64decode(messages[0]['content'][1]['source']['data'])))
             box=sphere_center(image,bounds=True)
             return Decision('pickup',{}, {}, 'Offline instrument only',
@@ -43,7 +48,7 @@ def verify(port, output):
         assert not any(row['result'].get('collided') for row in rows)
         pickups=[row for row in rows if row['tool']=='pickup']
         assert len(pickups)==1 and pickups[0]['result']['success'], pickups
-        report={'execution_mode':'offline_pixel_instrument','provider_calls':0,
+        report={'execution_mode':'offline_saved_ai_replay' if replay_journal else 'offline_pixel_instrument','provider_calls':0,
                 'decisions':len(rows),'pickup_attempts':len(pickups),'collisions':0,
                 'pickup':'pass','delivery':'not_tested',
                 'corrections':sum(bool(row.get('controller_correction')) for row in rows)}
@@ -57,4 +62,5 @@ if __name__=='__main__':
     p=argparse.ArgumentParser()
     p.add_argument('--engine-port',type=int,required=True)
     p.add_argument('--output',required=True)
-    a=p.parse_args(); verify(a.engine_port,a.output)
+    p.add_argument('--replay-journal')
+    a=p.parse_args(); verify(a.engine_port,a.output,a.replay_journal)
