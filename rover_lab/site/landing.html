@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rover Lab · Camera-guided robotics</title>
+<link rel="stylesheet" href="/assets/theme.css">
+<!-- SITE NAV -->
+<main>
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <span class="tag kicker">Camera-guided robotics</span>
+        <h1>Give the rover <span>a mission.</span></h1>
+        <p class="muted">A text command sends a simulated rover looking for the right object. Follow its camera, watch it navigate the arena, and see what it delivers.</p>
+        <div class="actions"><a class="button primary" href="#scenarios">Choose a scenario <span aria-hidden="true">↓</span></a></div>
+      </div>
+      <figure class="hero-visual">
+        <img class="frame" src="/assets/arena.jpg" alt="Spectator view of the Webots arena with a partition and green drop zone" width="640" height="480">
+        <div class="hero-inset"><img class="frame" src="/assets/after.png" alt="Rover camera showing a blue cylinder beside a yellow cone" width="640" height="480"></div>
+        <figcaption><span>WEBOTS ARENA</span><span>OFFLINE REHEARSAL</span></figcaption>
+      </figure>
+    </div>
+  </section>
+  <section class="story" id="scenarios" style="scroll-margin-top: 5rem"><div class="wrap">
+    <h2>Choose a scenario</h2>
+    <div class="story-grid">
+      <article class="card">
+        <span class="kicker">Scenario 1</span>
+        <h3>Red sphere delivery</h3>
+        <p>Fetch the red sphere and drop it in the green zone in the original arena.</p>
+        <div class="actions"><a class="button" href="/scenario-1">Open Scenario 1</a></div>
+      </article>
+      <article class="card">
+        <span class="kicker">Scenario 2</span>
+        <h3>Two cylinders and the judge swap</h3>
+        <p>Find the cylinder beside the yellow cone, then swap the cues and repeat the same command.</p>
+        <div class="actions"><a class="button primary" href="/jury">Open Jury Demo</a><a class="button" href="/watch">Watch Demo</a></div>
+      </article>
+    </div>
+  </div></section>
+  <section class="story"><div class="wrap">
+    <div class="kicker">Scenario 2 / The corner reveal</div>
+    <h2>One turn changes what the rover can see.</h2>
+    <p class="muted lede">The blue cylinder beside the yellow cone is hidden by a partition. These two frames come from the same turn in the scripted rehearsal.</p>
+    <div class="story-grid">
+      <figure class="card"><img class="frame" src="/assets/before.png" alt="Before turning, the rover faces a wall" width="640" height="480" loading="lazy"><figcaption>Before the turn · Target out of view</figcaption></figure>
+      <figure class="card"><img class="frame" src="/assets/after.png" alt="After turning, the rover sees a blue cylinder and yellow cone" width="640" height="480" loading="lazy"><figcaption>After the turn · Cylinder and cone visible</figcaption></figure>
+    </div>
+  </div></section>
+  <section class="story"><div class="wrap">
+    <div class="kicker">02 / How the demo works</div>
+    <h2>From command to delivery.</h2>
+    <div class="story-grid three">
+      <article class="card"><span class="kicker">01 · Command</span><h3>Choose the target</h3><p>Ask for the blue cylinder beside the yellow cone. The judge can swap the cues and repeat the same command.</p></article>
+      <article class="card"><span class="kicker">02 · Observe</span><h3>Follow both views</h3><p>The front camera shows the rover’s perspective. The spectator view shows its route through the room.</p></article>
+      <article class="card"><span class="kicker">03 · Verify</span><h3>Review the evidence</h3><p>Check the delivery result and open a logged turn, pickup, or collision to see the frame and action.</p></article>
+    </div>
+  </div></section>
+</main>
+<footer class="wrap site-footer"><span class="muted">Rover Lab · Webots rehearsal</span><div class="actions"><a class="button primary" href="/jury">Jury Demo</a><a class="button" href="/watch">Watch Demo</a></div></footer>
+</html>

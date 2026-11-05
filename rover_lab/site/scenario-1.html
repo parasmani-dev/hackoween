@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scenario 1 · Rover Lab</title>
+<link rel="stylesheet" href="/assets/theme.css">
+<meta name="jury-token" content="JURY_TOKEN">
+<meta name="rover-api" content="/scenario-1/api">
+<!-- SITE NAV -->
+<main class="wrap">
+  <div class="page-intro">
+    <span class="tag kicker">Scenario 1 / Operator console</span>
+    <h1>Red sphere delivery</h1>
+    <nav id="scenario-switch" class="segmented scenario-switch" aria-label="Choose a scenario">
+      <a class="button" href="/scenario-1" aria-current="page">Scenario 1</a>
+      <a class="button" href="/jury">Scenario 2</a>
+    </nav>
+    <p id="mode" class="muted">Connecting to the rover…</p>
+  </div>
+  <div class="console">
+    <section class="card controls" aria-label="Run controls">
+      <form id="controls">
+        <label for="command">Fetch command</label>
+        <textarea id="command" rows="2" required disabled>Fetch the red sphere and drop it in the green zone</textarea>
+        <div class="actions">
+          <button id="start" class="primary" disabled>Start fetch</button>
+          <button id="reset" type="button" disabled>Reset layout</button>
+        </div>
+      </form>
+      <p id="feedback" role="status"></p>
+      <p id="status" class="muted" role="status">Connecting…</p>
+    </section>
+    <div class="feeds">
+      <section class="card">
+        <div class="panel-head"><h2 id="camera-title">Rover camera</h2><span class="tag camera-tag">Rover POV</span></div>
+        <button id="view-toggle" type="button" aria-pressed="false" aria-controls="camera" hidden>Whole-rover view</button>
+        <img id="camera" class="frame" width="640" height="480" alt="Live front-camera feed" hidden>
+        <p id="camera-note" class="feed-note"></p>
+      </section>
+      <section class="card">
+        <div class="panel-head"><h2>Spectator view</h2><span class="tag camera-tag">Observer only</span></div>
+        <img class="frame" id="spectator" alt="Live high-angle Webots view">
+        <p class="feed-note" id="spectator-state">Connecting…</p>
+      </section>
+    </div>
+  </div>
+</main>
+<script src="/assets/feeds.js"></script>
+<script src="/scenario-1/operator.js"></script>
+<script>
+  startFeed("spectator", "/scenario-1/api/spectator?jury=" +
+    encodeURIComponent(document.querySelector('meta[name="jury-token"]').content));
+</script>
+</html>

@@ -11,6 +11,7 @@ const pages = {
 const port = Number(process.env.ROVER_UI_PORT ?? 8090);
 const enginePort = Number(process.env.ROVER_ENGINE_PORT ?? 8080);
 const previewFile = process.env.ROVER_PREVIEW_FILE;
+const spectatorFile = process.env.ROVER_SPECTATOR_FILE;
 const offline = process.env.ROVER_OFFLINE_DEMO === "1";
 const demoCommand = "Fetch the red sphere and drop it in the green zone";
 let demoStatus = "idle";
@@ -34,6 +35,15 @@ createServer(async (request, response) => {
   if (path === "/preview" && previewFile) {
     try {
       const frame = readPreview(previewFile);
+      response.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "no-store" });
+      response.end(frame);
+    } catch { response.writeHead(503).end(); }
+    return;
+  }
+  if (path === "/spectator") {
+    try {
+      if (!spectatorFile) throw new Error("Spectator feed unavailable");
+      const frame = readFileSync(spectatorFile);
       response.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "no-store" });
       response.end(frame);
     } catch { response.writeHead(503).end(); }

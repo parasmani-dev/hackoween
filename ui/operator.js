@@ -1,3 +1,13 @@
+const apiPrefix = document.querySelector('meta[name="rover-api"]')?.content ?? "";
+const juryToken = document.querySelector('meta[name="jury-token"]')?.content;
+function roverFetch(path, options = {}) {
+  if (!apiPrefix) return fetch(path, options);
+  return fetch(apiPrefix + path, {
+    ...options,
+    headers: { ...options.headers, "X-Jury-Token": juryToken },
+  });
+}
+
 const mock = new URLSearchParams(location.search).has("mock");
 const byId = (id) => document.getElementById(id);
 const command = byId("command");
@@ -6,6 +16,19 @@ const reset = byId("reset");
 const status = byId("status");
 const camera = byId("camera");
 const cameraNote = byId("camera-note");
+const viewToggle = byId("view-toggle");
+const cameraTitle = byId("camera-title");
+let wholeRover = false;
+
+viewToggle.addEventListener("click", () => {
+  wholeRover = !wholeRover;
+  viewToggle.setAttribute("aria-pressed", String(wholeRover));
+  viewToggle.textContent = wholeRover ? "Rover camera" : "Whole-rover view";
+  cameraTitle.textContent = wholeRover ? "Whole-rover view" : "Front camera";
+  camera.alt = wholeRover ? "Overhead view of the rover and room" : "Rover front camera";
+  camera.hidden = true;
+  cameraNote.textContent = mock ? "Mock mode uses a camera placeholder." : "Loading camera…";
+});
 
 if (mock) {
   byId("mode").textContent = "Mock run · no rover connected";
@@ -52,7 +75,7 @@ if (mock) {
   let offlineDemo = null;
 
   async function readOfflineDemo() {
-    const response = await fetch("/offline-demo", { cache: "no-store" });
+    const response = await roverFetch("/offline-demo", { cache: "no-store" });
     return response.ok ? await response.json() : null;
   }
 
@@ -67,7 +90,7 @@ if (mock) {
     revision += 1;
     updateControls();
     try {
-      const response = await fetch(path, {
+      const response = await roverFetch(path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(args),
@@ -107,9 +130,10 @@ if (mock) {
   async function refreshCamera() {
     let nextFrame = null;
     const started = performance.now();
+    const requestedWholeRover = wholeRover;
     try {
       if (document.hidden) return;
-      const response = await fetch(offlineDemo?.preview ? "/preview" : "/look", {
+      const response = await roverFetch(requestedWholeRover ? "/spectator" : (offlineDemo?.preview ? "/preview" : "/look"), {
         cache: "no-store", signal: AbortSignal.timeout(3000),
       });
       if (!response.ok) throw new Error("Camera unavailable");
@@ -117,6 +141,7 @@ if (mock) {
       const decoded = new Image();
       decoded.src = nextFrame;
       await decoded.decode();
+      if (requestedWholeRover !== wholeRover) return;
       camera.src = nextFrame;
       if (displayedFrame) URL.revokeObjectURL(displayedFrame);
       displayedFrame = nextFrame;
@@ -125,8 +150,9 @@ if (mock) {
       cameraFailures = 0;
       cameraNote.textContent = "";
     } catch {
+      if (requestedWholeRover !== wholeRover) return;
       cameraFailures += 1;
-      if (cameraFailures >= 3) cameraNote.textContent = displayedFrame
+      if (cameraFailures >= 3) cameraNote.textContent = !camera.hidden
         ? "Camera unavailable or stale - showing the last received frame."
         : "Camera unavailable - waiting for the first frame.";
     } finally {
@@ -139,7 +165,7 @@ if (mock) {
   async function refresh() {
     const observedRevision = revision;
     try {
-      const response = await fetch("/state", { cache: "no-store", signal: AbortSignal.timeout(4000) });
+      const response = await roverFetch("/state", { cache: "no-store", signal: AbortSignal.timeout(4000) });
       if (!response.ok) throw new Error("State unavailable");
       const state = await response.json();
       const demo = await readOfflineDemo();
@@ -147,7 +173,8 @@ if (mock) {
       roverState = state.state;
       offlineDemo = demo;
       if (demo?.enabled) {
-        byId("mode").textContent = "Offline scripted fetch";
+        byId("mode").textContent = apiPrefix ? "Offline scripted rehearsal" : "Scenario 1: Red sphere delivery";
+        byId("scenario-switch").hidden = !apiPrefix && window.location.port !== "8112";
         command.value = demo.command;
         feedback.textContent = {
           idle: "", running: "Scripted fetch running.", pass: "PASS: Red sphere delivered.",
