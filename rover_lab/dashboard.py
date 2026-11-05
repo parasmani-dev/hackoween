@@ -392,9 +392,12 @@ def serve(port, engine_port):
             with demo.lock:
                 if demo.running:
                     return self.reply({"error": "Run already active"}, status=409)
-                if self.path == "/select" and data.get("layout") in LAYOUTS:
+                if self.path == "/select":
+                    layout = data.get("layout")
+                    if not isinstance(layout, str) or layout not in LAYOUTS:
+                        return self.reply({}, status=400)
                     try:
-                        demo.select(data["layout"])
+                        demo.select(layout)
                     except Exception:
                         logging.exception("Layout reset failed")
                         return self.reply({"error": "Layout reset failed"}, status=502)

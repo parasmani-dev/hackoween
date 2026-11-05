@@ -5,6 +5,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 from time import monotonic, sleep
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 BASE = os.environ.get("ROVER_LAB_URL", "http://127.0.0.1:8113")
@@ -25,9 +26,23 @@ def call(path, data=None, *, page="/jury"):
         return json.load(response)
 
 
+def expect_select_error(layout, expected):
+    try:
+        call("/select", {"layout": layout})
+    except HTTPError as error:
+        with error:
+            assert error.code == expected, (layout, error.code)
+            assert isinstance(json.load(error), dict)
+    else:
+        raise AssertionError(f"Layout {layout!r} unexpectedly selected")
+
+
 def check(layout, expected, probe=None):
-    call("/select", {"layout": layout})
+    assert call("/select", {"layout": layout}) == {"ok": True}
+    assert call("/status")["layout"] == layout
     call("/start", {"probe": probe})
+    if layout == "A" and probe is None:
+        expect_select_error("B", 409)
     limit = monotonic() + 85
     while monotonic() < limit:
         status = call("/status")
@@ -83,6 +98,9 @@ def check_red_sphere():
 
 if __name__ == "__main__":
     check_red_sphere()
+    for invalid_layout in ([], {}):
+        expect_select_error(invalid_layout, 400)
+    print("Scenario 2: array and object layouts returned HTTP 400", flush=True)
     matrix = [check(layout, "pass") for layout in "ABC"]
     wrong = check("A", "fail_wrong_object", "wrong")
     recovery = check("A", "pass", "collision")
