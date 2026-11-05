@@ -2,6 +2,7 @@
 import json
 import os
 import unittest
+import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -42,6 +43,7 @@ class LiveRunTests(unittest.TestCase):
 
     def test_worker_pins_haiku_audits_and_finishes_without_leaking_private_fields(self):
         def fake_run(command, **kwargs):
+            self.assertEqual(self.live.status()['phase'], 'deciding')
             self.assertEqual(kwargs['claude'].model, HAIKU_MODEL)
             self.assertEqual(kwargs['max_decisions'], 25)
             kwargs['claude']._audit_request({'model': HAIKU_MODEL})
@@ -84,6 +86,111 @@ class LiveRunTests(unittest.TestCase):
         self.live.thread.join(3)
         self.assertEqual(self.live.operator.call_count, 1)
         self.assertFalse(self.live.status()['result']['finish_confirmed'])
+
+    def test_reset_clears_old_actions_but_preserves_saved_evidence(self):
+        self.live.attempt = Path(self.temp.name) / 'attempt-test'
+        folder = self.live.attempt / 'run-test'
+        folder.mkdir(parents=True)
+        journal = folder / 'steps.jsonl'
+        journal.write_text(json.dumps({'step': 1, 'tool': 'pickup', 'args': {}, 'result': {'success': False}}) + '\n')
+        self.live.command = 'old command'
+        self.live.max_decisions = 25
+        self.assertEqual(self.live.status()['decisions'], 1)
+        self.live.reset()
+        status = self.live.status()
+        self.assertEqual(status['actions'], [])
+        self.assertEqual(status['decisions'], 0)
+        self.assertIsNone(status['command'])
+        self.assertIsNone(status['max_decisions'])
+        self.assertEqual(status['phase'], 'idle')
+        self.assertTrue(journal.is_file())
+
+    def test_finish_failure_is_explicit_and_does_not_expose_error_details(self):
+        folder = Path(self.temp.name) / 'run-test'
+        folder.mkdir()
+        fake = SimpleNamespace(status='decision_limit', decisions=5, usage={}, run_dir=folder)
+        with patch('rover_lab.live.run_command', return_value=fake), \
+             patch('rover_lab.live.finish_run', side_effect=RuntimeError('secret simulator path')):
+            self.live.start('Fetch red sphere', 5)
+            self.live.thread.join(3)
+        status = self.live.status()
+        self.assertFalse(status['running'])
+        self.assertEqual(status['phase'], 'failed')
+        self.assertEqual(status['result']['outcome'], 'unconfirmed')
+        self.assertFalse(status['result']['finish_confirmed'])
+        self.assertEqual(status['result']['capture_status'], 'unconfirmed')
+        self.assertNotIn('secret simulator path', json.dumps(status))
+
+    def test_artifact_failure_releases_run_and_is_distinct_from_delivery_success(self):
+        folder = Path(self.temp.name) / 'run-test'
+        folder.mkdir()
+        fake = SimpleNamespace(status='engine_done', decisions=5, usage={}, run_dir=folder)
+        with patch('rover_lab.live.run_command', return_value=fake), \
+             patch('pathlib.Path.write_text', side_effect=OSError('private disk path')):
+            self.live.start('Fetch red sphere', 5)
+            self.live.thread.join(3)
+        status = self.live.status()
+        self.assertFalse(status['running'])
+        self.assertEqual(status['result']['status'], 'artifact_error')
+        self.assertEqual(status['result']['outcome'], 'pass')
+        self.assertTrue(status['result']['finish_confirmed'])
+        self.assertNotIn('private disk path', json.dumps(status))
+
+    def test_ui_progress_reload_reset_and_stale_poll_do_not_trigger_api_calls(self):
+        # Run the real page script against asynchronous HTTP responses and a small DOM.
+        # This exercises UI lifecycle behavior without a browser or any provider network.
+        script = Path(__file__).parent / 'site' / 'operator.js'
+        harness = r'''
+const fs = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+class Element {
+  constructor() {this.value = ''; this.disabled = false; this.textContent = ''; this.handlers = {};}
+  addEventListener(name, callback) { this.handlers[name] = callback; }
+  querySelector() { return this.option ??= new Element(); }
+  replaceChildren(...children) { this.children = children; }
+}
+const elements = Object.fromEntries(['run-mode','command','decision-cap','start','reset','mode','status',
+  'feedback','controls','action-log','camera','camera-note'].map(id => [id, new Element()]));
+elements['run-mode'].value = 'offline'; elements['decision-cap'].value = '25';
+let data = {
+  '/state': {state:'Locate', holding:false, retry_count:0},
+  '/offline-demo': {status:'idle',command:'Fetch red sphere'},
+  '/live/status': {enabled:true,ready:true,running:true,phase:'deciding',decisions:7,max_decisions:25,
+    command:'Fetch custom target',actions:[],result:null}
+};
+const calls=[];
+const context=vm.createContext({document:{hidden:false,querySelector:()=>({content:'token'}),
+  getElementById:id=>elements[id],createElement:()=>new Element()},
+  fetch: async (path, options) => {calls.push({path,options}); return {ok:true,json:async()=>data[path.replace('/scenario-1/api','')]};},
+  AbortSignal, setTimeout:()=>{}, startFeed:()=>{}, console});
+vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+const flush=()=>new Promise(resolve=>setImmediate(resolve));
+(async()=>{
+  await flush();
+  assert.match(elements.feedback.textContent,/Haiku run in progress.*7 \/ 25/);
+  assert.equal(elements.command.value,'Fetch custom target');
+  assert.equal(elements.start.disabled,true);
+  assert.equal(calls.filter(c=>c.options.method==='POST').length,0);
+  data['/state']={state:'Done',holding:false,retry_count:0};
+  data['/live/status']={...data['/live/status'],running:false,phase:'completed',result:{
+    outcome:'fail_not_reached',status:'decision_limit',decisions:25,finish_confirmed:true,capture_status:'complete'}};
+  vm.runInContext("runMode=null; mode.value='offline'; refresh()",context);
+  await flush();
+  assert.equal(elements['run-mode'].value,'live');
+  assert.match(elements.feedback.textContent,/fail_not_reached.*25 decisions/);
+  // A response to a poll begun before a lifecycle action must not overwrite that action's UI.
+  vm.runInContext("refresh(); revision += 1; byId('feedback').textContent='Newer action';",context);
+  await flush();
+  assert.equal(elements.feedback.textContent,'Newer action');
+  // Switching back to offline is explicit and cannot launch a provider.
+  elements['run-mode'].value='offline'; elements['run-mode'].handlers.change();
+  assert.equal(elements.feedback.textContent,'');
+  assert.equal(calls.filter(c=>c.options.method==='POST').length,0);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+'''
+        completed = subprocess.run(['node', '-e', harness, str(script)], capture_output=True, text=True, timeout=10)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
 
 if __name__ == '__main__':

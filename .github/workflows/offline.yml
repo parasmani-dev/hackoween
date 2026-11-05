@@ -19,7 +19,7 @@ jobs:
           node-version: '22'
       - run: python -m pip install -r agent/requirements.txt
       - name: Mocked providers, engine, capture, launcher and motor regressions
-        run: python -B -m unittest agent.test_clients agent.test_runner engine.test_run_control simulation.test_launcher simulation.test_capture simulation.test_provenance simulation.test_motor simulation.test_offline_preflight simulation.test_preview rover_lab.test_live -v
+        run: python -B -m unittest agent.test_clients agent.test_runner agent.test_affordances engine.test_run_control simulation.test_launcher simulation.test_capture simulation.test_provenance simulation.test_motor simulation.test_offline_preflight simulation.test_preview rover_lab.test_live -v
       - name: Preview health regression
         run: node --test ui/preview.test.mjs
       - name: UI and recording syntax

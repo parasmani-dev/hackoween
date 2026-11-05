@@ -64,14 +64,19 @@ def verify(engine_port, output):
         # Trial pickup is a reach check; only short, bounded moves follow failures.
         moves = 0
         trace = []
-        for index in range(16):
+        for index in range(24):
             if engine.execute('pickup', {})['success']:
                 break
-            center = sphere_center(capture(2+index*2))
+            current = capture(2+index*2)
+            center = sphere_center(current)
             correction = max(-15, min(15, math.degrees(math.atan((center-320)/320))))
             if abs(correction) > 5:
                 assert engine.execute('turn', {'degrees': correction})['success']
-            distance = 0.2 if moves < 3 else 0.1
+            # Partial clipping does not establish reach. Near contact, keep
+            # increments below the narrow pickup-before-collision window.
+            bottom = [current.getpixel((x, y)) for y in range(475, 480) for x in range(640)]
+            clipped = sum(r > 70 and r > 1.5*g and r > 1.5*b for r,g,b in bottom) > 30
+            distance = 0.05 if clipped else 0.2 if moves < 3 else 0.1
             result = engine.execute('move', {'distance': distance})
             trace.append({'center_x': center, 'correction': correction, 'move': distance, 'result': result})
             assert result['success'] and not result['collided'], result

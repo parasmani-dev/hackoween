@@ -88,6 +88,18 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(self.records(result)[1]['result']['reason'], 'navigation_guard')
         self.assertIn('move(0.3)', self.claude.decide.call_args_list[1].kwargs['system'])
 
+    def test_tiny_final_approach_is_allowed_after_automatic_collision_backoff(self):
+        for sign in (-1, 1):
+            with self.subTest(sign=sign):
+                self.engine.reset_mock()
+                self.engine.execute.side_effect = [{'success': False, 'collided': True},
+                                                   {'success': True, 'collided': False}]
+                self.claude.decide.side_effect = [Decision('move', {'distance': sign * 0.1}, {}),
+                                                Decision('move', {'distance': sign * 0.05}, {})]
+                result = self.run_rover(max_decisions=2)
+                self.assertEqual(self.engine.execute.call_count, 2)
+                self.assertTrue(self.records(result)[1]['result']['success'])
+
     def test_collision_guard_allows_a_new_heading_and_pickup_guidance_reuses_frame(self):
         self.engine.execute.side_effect = [{'success': False, 'collided': True},
             {'success': True}, {'success': True, 'collided': False},
@@ -97,11 +109,75 @@ class RunnerTests(unittest.TestCase):
             Decision('pickup', {}, {}), Decision('pickup', {}, {})]
         result = self.run_rover(max_decisions=5)
         rows = self.records(result)
-        self.assertEqual(self.engine.execute.call_count, 5)
+        self.assertEqual(self.engine.execute.call_count, 4)
         self.assertEqual(rows[3]['frame_path'], rows[4]['frame_path'])
+        self.assertEqual(rows[4]['result']['outcome'], 'not_dispatched')
         prompt = self.claude.decide.call_args_list[4].kwargs['system']
         self.assertIn('Pickup failed', prompt)
-        self.assertIn('at most 0.1 m', prompt)
+        self.assertIn('Do not repeat pickup', prompt)
+
+    def test_failed_pickup_and_drop_are_dispatched_once_per_unchanged_pose(self):
+        for tool in ('pickup', 'drop'):
+            for provider in ('claude', 'openai'):
+                with self.subTest(tool=tool, provider=provider):
+                    self.engine.reset_mock()
+                    self.claude.reset_mock()
+                    self.engine.execute.return_value = {'success': False}
+                    self.claude.decide.return_value = Decision(tool, {}, {'input_tokens': 1})
+                    result = self.run_rover(provider=provider)
+                    self.assertEqual((result.status, result.decisions), ('navigation_stalled', 4))
+                    self.engine.execute.assert_called_once_with(tool, {})
+                    self.engine.look.assert_called_once()
+                    rows = self.records(result)
+                    self.assertEqual(len(rows), 4)
+                    self.assertTrue(all(row['frame_path'] == '0000.png' for row in rows))
+                    self.assertTrue(all(row['result'] == {'outcome': 'not_dispatched',
+                        'reason': 'navigation_guard'} for row in rows[1:]))
+                    self.assertEqual(result.usage['input_tokens'], 4)
+                    self.assertIn('Actions currently unavailable', self.claude.decide.call_args.kwargs['system'])
+
+    def test_zero_or_ineffective_motion_does_not_enable_another_pickup(self):
+        self.engine.execute.side_effect = [
+            {'success': False}, {'success': True}, {'success': True, 'collided': False}]
+        self.claude.decide.side_effect = [Decision('pickup', {}, {}),
+            Decision('turn', {'degrees': 0}, {}), Decision('pickup', {}, {}),
+            Decision('move', {'distance': 0.1}, {}), Decision('pickup', {}, {})]
+        result = self.run_rover(max_decisions=5)
+        rows = self.records(result)
+        self.assertEqual(self.engine.execute.call_count, 3)
+        self.assertEqual(rows[2]['result']['outcome'], 'not_dispatched')
+        self.assertEqual(rows[4]['result']['outcome'], 'not_dispatched')
+        self.assertEqual(rows[0]['frame_path'], rows[1]['frame_path'])
+        self.assertEqual(rows[1]['frame_path'], '0000.png')
+        self.assertEqual(rows[2]['frame_path'], '0002.png')
+        self.assertEqual(rows[4]['frame_path'], '0004.png')
+
+    def test_pose_correction_enables_pickup_and_clears_old_restriction(self):
+        moved = {**state(), 'x': 0.1}
+        self.engine.state.side_effect = [state(), state(), moved, moved, state(), state()]
+        self.engine.execute.side_effect = [{'success': False}, {'success': True, 'collided': False},
+            {'success': True}, {'success': True, 'collided': False}, {'success': True}]
+        self.claude.decide.side_effect = [Decision('pickup', {}, {}),
+            Decision('move', {'distance': 0.1}, {}), Decision('pickup', {}, {}),
+            Decision('move', {'distance': -0.1}, {}), Decision('pickup', {}, {})]
+        result = self.run_rover(max_decisions=5)
+        self.assertEqual(self.engine.execute.call_count, 5)
+        rows = self.records(result)
+        self.assertEqual([row['frame_path'] for row in rows],
+                         ['0000.png', '0000.png', '0002.png', '0002.png', '0004.png'])
+        offered = [call.args[0] for call in self.claude.set_available_actions.call_args_list]
+        self.assertIn('pickup', offered[0])
+        self.assertNotIn('pickup', offered[1])
+        self.assertIn('pickup', offered[2])
+        self.assertIn('pickup', offered[4])
+
+    def test_out_of_zone_drop_needs_a_pose_correction_even_after_repickup(self):
+        self.engine.execute.side_effect = [{'success': True, 'in_zone': False}, {'success': True}]
+        self.claude.decide.side_effect = [Decision('drop', {}, {}), Decision('pickup', {}, {}),
+                                        Decision('drop', {}, {})]
+        result = self.run_rover(max_decisions=3)
+        self.assertEqual(self.engine.execute.call_count, 2)
+        self.assertEqual(self.records(result)[2]['result']['outcome'], 'not_dispatched')
 
     def test_camera_refresh_reuse_and_artifacts(self):
         self.engine.look.side_effect = [jpeg("red"), jpeg("green"), jpeg("blue")]

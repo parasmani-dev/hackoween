@@ -26,7 +26,7 @@ try {
     $env:FFPROBE_PATH = Join-Path $ffmpeg "ffprobe.exe"
     Start-Transcript -Path $log | Out-Null
     git rev-parse HEAD
-    python -B -m unittest agent.test_clients agent.test_runner engine.test_run_control simulation.test_launcher simulation.test_capture simulation.test_provenance simulation.test_motor simulation.test_offline_preflight simulation.test_preview rover_lab.test_live -v
+    python -B -m unittest agent.test_clients agent.test_runner agent.test_affordances engine.test_run_control simulation.test_launcher simulation.test_capture simulation.test_provenance simulation.test_motor simulation.test_offline_preflight simulation.test_preview rover_lab.test_live -v
     if ($LASTEXITCODE -ne 0) { throw 'Python regressions failed' }
     node --test ui/preview.test.mjs
     if ($LASTEXITCODE -ne 0) { throw 'Preview regressions failed' }

@@ -48,7 +48,7 @@ private evaluator/capture fields never enter browser status or model requests.
 Before a paid run, run the unit regressions and the offline live-path verifier:
 
 ```powershell
-python -B -m unittest agent.test_clients agent.test_runner rover_lab.test_live -v
+python -B -m unittest agent.test_clients agent.test_runner agent.test_affordances rover_lab.test_live -v
 # Start Rover Lab WITHOUT -EnableLiveAgent, then use its printed ports:
 python -B -m rover_lab.verify_live_offline --engine-port 18836 --ui-port 8112 --run-dir runs/haiku-ui-offline
 python -B -m rover_lab.verify_navigation_offline --engine-port 18836 --output runs/navigation-camera-offline
@@ -65,6 +65,21 @@ not autonomous Haiku navigation. The navigation prompt now calibrates small turn
 to image positions, separates pickup from zone search and handles close targets;
 the runner also rejects immediate repeat moves into a collision. Live delivery
 must be assessed separately after an authorized paid run.
+
+After a failed pickup/drop, that action is temporarily removed from both
+providers' offered tools until the rover's actual pose changes. A fallback
+guard also rejects repeated proposals from injected policies. Zero/ineffective
+motion does not unlock another attempt; three rejected proposals stop the loop.
+Only the same four public action schemas are used. Camera geometry explains why
+a target touching the image bottom can still be beyond 0.5 m center-based reach;
+the prompt uses shorter 0.05 m final approaches rather than repeated pickup at
+an unchanged pose. The verifier deliberately starts with a failed pickup and
+checks suppression, corrected motion and eventual scripted delivery.
+
+The UI reports preparing, decision progress and finalization separately. Reload
+restores the latest result within the current server session. Reset clears the
+displayed actions while preserving disk evidence. Finish and recording failures
+remain explicit instead of appearing as a successful delivery.
 
 The separate camera-calibration verifier uses red connected components as an
 offline measurement instrument, not as production perception. It checks the

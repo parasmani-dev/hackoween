@@ -2,6 +2,7 @@
 
 import base64
 import json
+import math
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -21,41 +22,49 @@ MAX_REJECTED_TURNS = 3
 MAX_TURNS_WITHOUT_PROGRESS = 12
 SYSTEM_PROMPT = (
     "Control the rover to complete the operator's fetch command. Choose one action per decision. "
-    "Use the latest front camera image as your only source for object and zone locations. "
-    "Match both color and silhouette: spheres look round, cubes have corners, cylinders "
-    "have upright sides, and cones taper to a tip. "
-    "Before choosing an action, locate the requested object in this image. While not holding, "
-    "ignore the drop zone until pickup succeeds. Do not drive straight ahead when the target "
-    "is visibly off-center. The 640-pixel image has a 90-degree horizontal field of view: "
-    "a target near x=160 needs roughly -27 degrees; x=240 about -14 degrees; "
-    "x=320 needs no turn; x=400 about +14 degrees; x=480 about +27 degrees. "
-    "For a visible target use a small correction, usually 5 to 25 degrees, never a 90-degree "
-    "search turn. Reobserve after that correction. Do not undo a turn just because a different "
-    "object is now centered. Track the requested color AND shape. "
-    "Aim toward the target: image left means a negative turn and image right means a positive turn. "
-    "A target in the middle third is aligned enough. Advance about 0.3 to 0.5 metres along "
-    "clear floor and reassess. If a turn moved the target farther from center, correct once "
-    "in the opposite direction, then move toward it when sufficiently aligned. "
-    "Avoid long blind drives. When the target is close, use 0.1 to 0.2 metre moves. "
-    "Pick up only when the requested object is centered and within 0.5 metres. "
-    "A close object can be partly below the bottom edge of the image. After a short approach "
-    "to a centered close target, try pickup instead of driving over it or starting a new scan. "
-    "A failed pickup is a useful distance check; approach another 0.1 metres only if clear. "
-    "If pickup fails, use the frame to adjust distance or alignment before trying again. "
-    "If the target is out of view, scan consistently in one direction in 45 degree turns. "
-    "If a full scan has not helped, change viewpoint only when the camera shows clear floor. "
-    "If the image is mostly a nearby wall, reverse 0.2 metres rather than driving into it. "
-    "Do not use zero turns or alternate opposite turns without making progress. "
-    "When holding, use the command and camera to locate the drop zone, center it, "
-    "approach in short steps, and drop when close enough "
-    "that the carried object will land inside it. "
-    "When Blocked, use recent action results to identify the contact. After a failed turn, "
-    "the rover may have rotated partly. Use the refreshed camera to choose a short move into "
-    "clear floor if safe. If a move is unsafe, turn away from the contact if the view supports it. "
-    "Do not repeat the failed turn. After a collided move, if still facing the same way, move "
-    "0.3 metres in the opposite direction of that move to gain clearance. If the heading changed, "
-    "use the current camera to choose a safe short move. Then follow a clear route. "
-    "Use recent actions and their results to avoid repeating failed approaches."
+    "Use only the latest front camera image to locate objects, obstacles and the requested drop zone. "
+    "Match both color and silhouette: spheres are round, cubes have corners, cylinders have upright "
+    "sides and cones taper to a tip. While not holding, first approach and pick up the requested object. "
+    "Only after pickup succeeds, navigate to the requested zone. "
+    "ALIGNMENT: image left means a negative turn, right a positive turn. For the 640-pixel, "
+    "90-degree horizontal field of view, x=160 corresponds to about -27 degrees, x=240 to -14, "
+    "x=320 to zero, x=400 to +14 and x=480 to +27. If the target is off-center, make a small "
+    "5-to-25-degree correction before advancing. A target in the middle third is aligned enough. "
+    "After each movement, reassess its position using the new image; don't undo a turn to center "
+    "a different object. If the requested target is absent, scan consistently in one direction "
+    "with 45-degree turns. Don't alternate opposite turns without translating. "
+    "DISTANCE: pickup reach is 0.5 metres from the ROVER CENTER, not from the camera. "
+    "The camera is 0.22 metres ahead of that center, 0.5 metres above the floor and tilted "
+    "10 degrees down. A large object, or an object beginning to clip the bottom edge, can still "
+    "be out of reach. In this camera, even a floor contact point at the bottom edge is roughly "
+    "0.69 metres from the rover center, beyond pickup reach. Look at the target's floor contact "
+    "and the clear floor below it rather than treating its visible size as a distance sensor. "
+    "APPROACH: while the target is centered with clear floor in front of it, advance 0.2-to-0.3 "
+    "metres and reassess. Once its lower part is below the image, use 0.1-metre approaches "
+    "and a pickup trial when aligned. Near reach, reduce to 0.05-metre approaches between "
+    "pickup trials so you do not skip the narrow safe approach distance. Do not drive over "
+    "an object or take long blind drives. "
+    "FAILED PICKUP: this is evidence the current distance or alignment is wrong. Repeating pickup "
+    "at the unchanged pose cannot help and will be rejected. If still centered with clear floor, "
+    "approach farther; if off-center, make a small alignment correction. Do not reverse away "
+    "from a centered target merely because pickup failed. Pickup/drop do not refresh the image; "
+    "only move or turn provides a new camera view. "
+    "CARRY AND DROP: when holding, find the requested zone in the image, face it and advance "
+    "along clear floor in short steps. A distant colored patch is not close enough. Approach "
+    "until the carried object will be over the zone, then drop. If a drop is out of zone, "
+    "the object has been released: pick it up again before trying another delivery. "
+    "The carried object can obscure the bottom of the camera; it is already attached, not "
+    "a new target to approach. If another object blocks the route to the zone, use visible "
+    "clear floor to go around it rather than driving through it. "
+    "A failed drop at the same pose must not be retried without correcting position. "
+    "RECOVERY: if the image is mostly a nearby wall, reverse 0.2 metres rather than driving "
+    "into it. After a collided move, the simulator stopped and backed off 0.1 metres. If heading "
+    "is unchanged, move opposite that failed move for clearance, then use a clear route. "
+    "If contact occurred during a final approach to the centered target, the automatic backoff "
+    "may already provide clearance: try pickup once; if it fails, realign and use a 0.05-metre "
+    "approach rather than repeating the larger collided drive. A blocked turn can rotate "
+    "partly: use the refreshed camera to choose safe clearance. "
+    "Do not repeat the failed turn. Use recent results to avoid repeating failed approaches."
 )
 
 
@@ -123,13 +132,30 @@ def _recovery_prompt(history):
     if last["tool"] == "move" and last["result"].get("collided"):
         retreat = -0.3 if last["args"]["distance"] > 0 else 0.3
         return (f" The last move collided. The simulator already stopped and backed off 0.1 m. "
-                f"Your heading has not changed since that move. Gain clearance with move({retreat}) "
-                "before another approach; do not continue driving in the collision direction.")
+                "Your heading has not changed since that move. If contact was with the centered "
+                "requested target during its final approach, try pickup once after the backoff, "
+                "then a 0.05 m alignment/approach correction if needed. Otherwise gain clearance "
+                f"with move({retreat}) before choosing a clear route. Do not repeat the larger "
+                "collided drive.")
     if last["tool"] == "pickup" and last["result"].get("success"):
         return " Pickup succeeded. Now find the requested drop zone in the camera; do not search for the object again."
     if last["tool"] == "pickup" and not last["result"].get("success"):
-        return " Pickup failed. Keep tracking the same target; correct alignment or approach by at most 0.1 m if clear."
+        return (" Pickup failed: the target was not within reach/alignment at that pose. "
+                "Do not repeat pickup. Use a small turn if off-center, otherwise approach "
+                "0.2 m along clear floor while the whole target is visible, or 0.1 m when "
+                "its lower part is first clipped; near reach use 0.05 m to avoid overshooting. "
+                "Reassess before the next pickup trial.")
     return ""
+
+
+def _pose(state):
+    return state["x"], state["y"], state["heading"]
+
+
+def _pose_changed(before, after):
+    """Ignore numeric pose jitter; an ineffective/zero command is no correction."""
+    return (math.hypot(before[0] - after[0], before[1] - after[1]) > 0.001
+            or abs(math.remainder(before[2] - after[2], 360)) > 0.1)
 
 
 def run_command(
@@ -163,6 +189,7 @@ def run_command(
     status = "decision_limit"
     rejected_turns = 0
     turns_without_progress = 0
+    failed_manipulations = {}
 
     try:
         with (run_dir / "steps.jsonl").open("x", encoding="utf-8") as journal:
@@ -189,13 +216,31 @@ def run_command(
                 decisions = step
                 system = _navigation_prompt(history)
                 alternating_turns = system != SYSTEM_PROMPT
+                system += (" Your current objective is delivery: holding is true; locate and approach "
+                           "the requested zone, not the picked object." if state["holding"] else
+                           " Your current objective is acquisition: holding is false; align, approach "
+                           "and pick up the requested object before navigating to the zone.")
                 system += _recovery_prompt(history)
+                failed_manipulations = {
+                    name: pose for name, pose in failed_manipulations.items()
+                    if not _pose_changed(pose, _pose(state))
+                }
+                disabled = list(failed_manipulations)
+                if disabled:
+                    system += (" Actions currently unavailable at this unchanged pose: " + ", ".join(disabled)
+                               + ". Their previous attempts failed here. Choose a meaningful move or turn "
+                               "to correct position/alignment before trying them again. A zero command "
+                               "or another failed manipulation does not change this restriction.")
                 if rejected_turns:
                     system += (
                         " The previous action proposal was rejected before dispatch. "
                         "The rover has not moved. Choose a different action using the same image."
                     )
                 try:
+                    set_available = getattr(claude, "set_available_actions", None)
+                    if callable(set_available):
+                        set_available([name for name in ("move", "turn", "pickup", "drop")
+                                       if name not in disabled])
                     decision = claude.decide(
                         [{"role": "user", "content": [{"type": "text", "text": context}, frame]}],
                         system=system,
@@ -212,8 +257,9 @@ def run_command(
                     decision.name == "move" and history and history[-1]["tool"] == "move"
                     and history[-1]["result"].get("collided")
                     and decision.args["distance"] * history[-1]["args"]["distance"] > 0
+                    and abs(decision.args["distance"]) > 0.05
                 )
-                if repeats_collision or (decision.name == "turn" and (
+                if decision.name in disabled or repeats_collision or (decision.name == "turn" and (
                     turns_without_progress >= MAX_TURNS_WITHOUT_PROGRESS
                     or (alternating_turns
                         and decision.args["degrees"] * history[-1]["args"]["degrees"] < 0)
@@ -236,6 +282,10 @@ def run_command(
                 log_decision(step, timestamp, decision.name, decision.args, result, frame_name)
                 if status == "action_uncertain":
                     break
+                if decision.name in ("pickup", "drop") and (
+                    not result["success"] or result.get("in_zone") is False
+                ):
+                    failed_manipulations[decision.name] = _pose(state)
                 history.append(action)
                 if decision.name == "turn":
                     turns_without_progress += 1

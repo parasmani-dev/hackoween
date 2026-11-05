@@ -9,6 +9,7 @@ const reset = byId('reset');
 let snapshot = null;
 let pending = false;
 let runMode = null;
+let revision = 0;
 
 async function api(path, data) {
   const response = await fetch(prefix + path, {
@@ -46,8 +47,16 @@ function render() {
       item.textContent = `${action.step}: ${action.tool ?? 'Provider error'} ${JSON.stringify(action.args)} · ${JSON.stringify(action.result)}`;
       return item;
     }));
-    if (runMode === 'live' && result && !snapshot.live.running) {
-      byId('feedback').textContent = `${result.outcome} · ${result.status} · ${result.decisions ?? 0} decisions`;
+    if (snapshot.live.running) {
+      const phase = {starting: 'Preparing the rover', deciding: 'Haiku run in progress',
+        finishing: 'Finalizing verdict and recording'}[snapshot.live.phase] || 'Haiku run in progress';
+      byId('feedback').textContent = `${phase} · ${snapshot.live.decisions ?? 0} / ${snapshot.live.max_decisions ?? cap.value} decisions`;
+    } else if (runMode === 'live' && result) {
+      const notes = [];
+      if (result.finish_confirmed === false) notes.push('Finish unconfirmed; check the engine before resetting.');
+      if (result.status === 'artifact_error') notes.push('Run evidence could not be saved.');
+      if (result.capture_status && result.capture_status !== 'complete') notes.push('Recording is incomplete or unconfirmed.');
+      byId('feedback').textContent = `${result.outcome} · ${result.status} · ${result.decisions ?? 0} decisions${notes.length ? ' · ' + notes.join(' ') : ''}`;
     } else if (runMode === 'offline') {
       byId('feedback').textContent = {running: 'Offline rehearsal running.', pass: 'PASS: Red sphere delivered.',
         fail: 'Offline rehearsal failed. Check the local logs.', idle: ''}[snapshot.offline.status] || '';
@@ -55,7 +64,11 @@ function render() {
   }
 }
 
-mode.addEventListener('change', render);
+mode.addEventListener('change', () => {
+  runMode = mode.value;
+  byId('feedback').textContent = '';
+  render();
+});
 byId('controls').addEventListener('submit', async event => {
   event.preventDefault();
   if (start.disabled) return;
@@ -66,6 +79,7 @@ byId('controls').addEventListener('submit', async event => {
     return;
   }
   pending = true;
+  revision += 1;
   render();
   try {
     await api(selectedMode === 'live' ? '/live/start' : '/run/start', selectedMode === 'live'
@@ -73,30 +87,35 @@ byId('controls').addEventListener('submit', async event => {
     runMode = selectedMode;
     byId('feedback').textContent = selectedMode === 'live' ? 'Haiku run starting…' : 'Offline rehearsal starting…';
   } catch (error) { byId('feedback').textContent = error.message; }
-  finally { pending = false; }
+  finally { revision += 1; pending = false; }
 });
 reset.addEventListener('click', async () => {
   if (reset.disabled) return;
   pending = true;
+  revision += 1;
   render();
   try {
     await api(runMode === 'offline' ? '/run/reset' : '/live/reset', {});
     runMode = null;
     byId('feedback').textContent = 'Rover reset.';
   } catch (error) { byId('feedback').textContent = error.message; }
-  finally { pending = false; }
+  finally { revision += 1; pending = false; }
 });
 
 async function refresh() {
+  const observedRevision = revision;
   try {
     const [state, offline, live] = await Promise.all([api('/state'), api('/offline-demo'), api('/live/status')]);
-    if (!pending) {
+    if (!pending && observedRevision === revision) {
       snapshot = {state, offline, live};
-      if (live.running) { mode.value = 'live'; runMode = 'live'; }
+      if (live.running || (runMode === null && live.result)) { mode.value = 'live'; runMode = 'live'; }
+      if (live.running && live.command) command.value = live.command;
+      if (live.running && live.max_decisions) cap.value = live.max_decisions;
       if (offline.status === 'running') { mode.value = 'offline'; runMode = 'offline'; }
       render();
     }
   } catch {
+    if (pending || observedRevision !== revision) return;
     snapshot = null;
     render();
     byId('status').textContent = 'Waiting for the rover engine.';

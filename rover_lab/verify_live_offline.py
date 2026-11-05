@@ -29,6 +29,9 @@ def verify(engine_port, ui_port, run_dir):
     layout = output / 'test-layout.txt'
     layout.write_text('A')
     actions = iter([
+        # Deliberately fail an early pickup, then require a corrected pose before
+        # offering it again. Exercises the live failure that consumed 15 calls.
+        ('pickup', None),
         ('face', (-0.96, 0.46)), ('drive', (-0.96, 0.46)),
         ('face', (-0.55, 0.65)), ('pickup', None),
         ('face', (-0.65, 0.46)), ('drive', (-0.65, 0.46)),
@@ -42,6 +45,9 @@ def verify(engine_port, ui_port, run_dir):
         assert payload['model'] == HAIKU_MODEL
         assert 'expected_fixture_key' not in json.dumps(payload)
         requests.append(payload)
+        offered = {tool['name'] for tool in payload['tools']}
+        if len(requests) == 2:
+            assert 'pickup' not in offered, 'Failed pickup was still offered at the same pose'
         state = json.loads(payload['messages'][0]['content'][0]['text'])['state']
         action, target = next(actions)
         if action == 'face':
@@ -112,7 +118,7 @@ def verify(engine_port, ui_port, run_dir):
             else:
                 raise AssertionError('Offline live-path verification timed out')
             assert status['result']['outcome'] == 'pass', status
-            assert status['result']['decisions'] == 11, status
+            assert status['result']['decisions'] == 12, status
             assert 'pov_manifest' not in json.dumps(status)
             live = server.live_run
             record = json.loads((live.attempt / 'operator-result.json').read_text())
@@ -121,6 +127,7 @@ def verify(engine_port, ui_port, run_dir):
             assert record['verdict']['pov_status'] == 'complete', record
             journal = next(live.attempt.glob('run-*/steps.jsonl'))
             rows = [json.loads(line) for line in journal.read_text().splitlines()]
+            assert rows[0]['tool'] == 'pickup' and rows[0]['result'] == {'success': False}
             for req, row in zip(requests, rows, strict=True):
                 raw = req['messages'][0]['content'][1]['source']['data']
                 image = Image.open(io.BytesIO(base64.b64decode(raw))).convert('RGB')

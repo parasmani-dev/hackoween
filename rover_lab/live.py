@@ -24,6 +24,9 @@ class LiveRun:
         self.result = None
         self.attempt = None
         self.thread = None
+        self.phase = "idle"
+        self.command = None
+        self.max_decisions = None
 
     def status(self):
         with self.lock:
@@ -39,7 +42,8 @@ class LiveRun:
             return {"enabled": os.environ.get("ROVER_LIVE_ENABLED") == "1",
                     "ready": bool(os.environ.get("ANTHROPIC_API_KEY")),
                     "provider": "claude", "model": HAIKU_MODEL,
-                    "running": self.running, "result": self.result,
+                    "running": self.running, "result": self.result, "phase": self.phase,
+                    "command": self.command, "max_decisions": self.max_decisions,
                     "decisions": len(rows), "actions": [{k: row[k] for k in ("step", "tool", "args", "result")}
                                                         for row in rows[-5:]]}
 
@@ -65,12 +69,16 @@ class LiveRun:
             self.output_root.mkdir(parents=True, exist_ok=True)
             self.attempt = Path(mkdtemp(prefix="attempt-", dir=self.output_root))
             self.running = True
+            self.phase = "starting"
+            self.command = command.strip()
+            self.max_decisions = cap
             self.result = None
             self.thread = threading.Thread(target=self.run, args=(command.strip(), cap), daemon=True)
             try:
                 self.thread.start()
             except Exception:
                 self.running = False
+                self.phase = "failed"
                 raise
 
     def reset(self):
@@ -79,6 +87,10 @@ class LiveRun:
                 raise RuntimeError("Wait for the current run to finish before resetting.")
             result = self.operator("/run/reset", {})
             self.result = None
+            self.attempt = None
+            self.phase = "idle"
+            self.command = None
+            self.max_decisions = None
             return result
 
     def run(self, command, cap):
@@ -94,6 +106,8 @@ class LiveRun:
                 data["expected_fixture_key"] = "item_1"
             self.operator("/run/start", data)
             started = True
+            with self.lock:
+                self.phase = "deciding"
             # A per-client model override keeps the user's environment and other providers intact.
             from agent.claude import ClaudeClient
             def audit(payload):
@@ -109,6 +123,8 @@ class LiveRun:
             record["status"] = "operator_error"
         finally:
             if started:
+                with self.lock:
+                    self.phase = "finishing"
                 try:
                     reason = "decision_limit" if record["status"] == "decision_limit" else "abandoned"
                     record["verdict"] = finish_run(self.operator, reason)
@@ -125,4 +141,6 @@ class LiveRun:
                     self.result["outcome"] = (record.get("verdict", {}).get("outcome") or
                                               ("unscored" if "verdict" in record else "unconfirmed"))
                     self.result["finish_confirmed"] = "verdict" in record
+                    self.result["capture_status"] = record.get("verdict", {}).get("pov_status", "unconfirmed")
                     self.running = False
+                    self.phase = "completed" if "verdict" in record else "failed"

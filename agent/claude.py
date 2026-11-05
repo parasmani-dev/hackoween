@@ -33,6 +33,12 @@ class ClaudeClient:
         self.timeout = timeout
         self.max_tokens = max_tokens
         self._audit_request = audit_request
+        self._available_actions = None
+
+    def set_available_actions(self, names):
+        names = tuple(names)
+        tool_definitions(names)
+        self._available_actions = names
 
     def decide(self, messages, *, system):
         payload = {
@@ -40,7 +46,7 @@ class ClaudeClient:
             "max_tokens": self.max_tokens,
             "messages": messages,
             "system": system,
-            "tools": tool_definitions(),
+            "tools": tool_definitions(self._available_actions),
             "tool_choice": {"type": "any", "disable_parallel_tool_use": True},
         }
         if self._audit_request is not None:
@@ -62,6 +68,8 @@ class ClaudeClient:
                 raise ValueError
             name, args = calls[0]["name"], calls[0]["input"]
             validate_action(name, args)
+            if self._available_actions is not None and name not in self._available_actions:
+                raise ValueError("Unavailable action.")
             usage = {key: response["usage"][key] for key in ("input_tokens", "output_tokens")}
             for key in ("cache_creation_input_tokens", "cache_read_input_tokens"):
                 if response["usage"].get(key) is not None:

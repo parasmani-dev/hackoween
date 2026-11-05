@@ -6,12 +6,18 @@ import math
 _ACTIONS = {
     "move": ("Drive forward or reverse.", "distance", "Signed distance in metres."),
     "turn": ("Rotate in place.", "degrees", "Degrees, positive clockwise."),
-    "pickup": ("Pick up the object within reach and aligned with the rover.", None, None),
-    "drop": ("Release the held object.", None, None),
+    "pickup": ("Pick up only within 0.5 m of the rover center and 30 degrees of its heading. "
+               "A large camera image does not prove reach. After failure, move or turn to correct "
+               "the pose before retrying; repeating at the same pose is rejected.", None, None),
+    "drop": ("Release the held object. Approach the requested zone before releasing. "
+             "If released outside the zone, pick it up again and correct position before retrying.", None, None),
 }
 
 
-def tool_definitions():
+def tool_definitions(available_actions=None):
+    allowed = set(_ACTIONS) if available_actions is None else set(available_actions)
+    if not allowed or not allowed <= _ACTIONS.keys():
+        raise ValueError("Choose at least one known rover action.")
     return [
         {
             "name": name,
@@ -25,6 +31,7 @@ def tool_definitions():
             },
         }
         for name, (description, field, units) in _ACTIONS.items()
+        if name in allowed
     ]
 
 
