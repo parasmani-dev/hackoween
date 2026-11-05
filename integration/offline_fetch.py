@@ -2,6 +2,7 @@
 
 import json
 import math
+import os
 import sys
 from urllib.request import Request, urlopen
 
@@ -9,7 +10,8 @@ from urllib.request import Request, urlopen
 def run(port):
     def call(path, data=None):
         body = None if data is None else json.dumps(data).encode()
-        with urlopen(Request(f"http://127.0.0.1:{port}{path}", data=body), timeout=35) as response:
+        with urlopen(Request(f"http://127.0.0.1:{port}{path}", data=body),
+                     timeout=float(os.environ.get("ROVER_ACTION_TIMEOUT", "35"))) as response:
             return json.load(response)
 
     def face(x, y):

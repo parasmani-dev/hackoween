@@ -1,0 +1,15 @@
+**
+!agent/
+!agent/**
+!engine/
+!engine/**
+!integration/
+!integration/**
+!simulation/
+!simulation/**
+!ui/
+!ui/**
+!rover_lab/
+!rover_lab/**
+**/__pycache__
+**/*.wbproj

@@ -189,7 +189,8 @@ class Demo:
             layout = self.route(layout_key, command)
             self.engine("/run/start", {"command": command, "expected_fixture_key": layout["expected"]})
             policy = ScriptedPolicy(layout, collision, wrong)
-            result = run_command(command, engine=EngineClient(self.engine_url), claude=policy,
+            client = EngineClient(self.engine_url, timeout=float(os.environ.get("ROVER_ACTION_TIMEOUT", "35")))
+            result = run_command(command, engine=client, claude=policy,
                                  output_root=self.active, max_decisions=policy.limit)
             folder = result.run_dir
             verdict = self.engine("/run/finish", {"reason": "abandoned"})
