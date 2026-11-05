@@ -1,5 +1,8 @@
 #VRML_SIM R2025a utf8
 
+EXTERNPROTO "../protos/RoverBody.proto"
+EXTERNPROTO "../protos/RoverWheel.proto"
+
 WorldInfo { basicTimeStep 32 coordinateSystem "ENU" }
 Viewpoint { position 0 0 10 }
 Background { skyColor [ 0.83 0.81 0.77 ] }
@@ -736,22 +739,7 @@ DEF ROVER Robot {
   supervisor TRUE
   controller "bridge"
   children [
-    Pose {
-      translation 0 0 0.19
-      children [ Shape {
-      appearance PBRAppearance { baseColor 0.94 0.95 0.97 roughness 0.42 metalness 0 }
-      geometry Box { size 0.42 0.34 0.18 }
-    } ]
-    }
-    Pose {
-      translation 0.10 0 0.284
-      children [
-        Shape {
-          appearance PBRAppearance { baseColor 0.03 0.39 0.95 emissiveColor 0.01 0.08 0.24 roughness 0.4 metalness 0 }
-          geometry Box { size 0.13 0.25 0.008 }
-        }
-      ]
-    }
+    RoverBody { }
     HingeJoint {
       jointParameters HingeJointParameters {
         axis 0 1 0
@@ -762,23 +750,11 @@ DEF ROVER Robot {
         translation -0.14 -0.19 0.1
         rotation 1 0 0 1.570796
         children [
-          Shape {
-            appearance PBRAppearance { baseColor 0.06 0.06 0.07 roughness 0.85 metalness 0 }
-            geometry Cylinder { radius 0.1 height 0.05 subdivision 32 }
-          }
+          RoverWheel { }
         ]
         boundingObject Cylinder { radius 0.1 height 0.05 }
         physics Physics { density -1 mass 0.12 }
       }
-    }
-    Pose {
-      translation 0.10 0 0.284
-      children [
-        Shape {
-          appearance PBRAppearance { baseColor 0.03 0.39 0.95 emissiveColor 0.01 0.08 0.24 roughness 0.4 metalness 0 }
-          geometry Box { size 0.13 0.25 0.008 }
-        }
-      ]
     }
     HingeJoint {
       jointParameters HingeJointParameters {
@@ -790,23 +766,11 @@ DEF ROVER Robot {
         translation 0.14 -0.19 0.1
         rotation 1 0 0 1.570796
         children [
-          Shape {
-            appearance PBRAppearance { baseColor 0.06 0.06 0.07 roughness 0.85 metalness 0 }
-            geometry Cylinder { radius 0.1 height 0.05 subdivision 32 }
-          }
+          RoverWheel { }
         ]
         boundingObject Cylinder { radius 0.1 height 0.05 }
         physics Physics { density -1 mass 0.12 }
       }
-    }
-    Pose {
-      translation 0.10 0 0.284
-      children [
-        Shape {
-          appearance PBRAppearance { baseColor 0.03 0.39 0.95 emissiveColor 0.01 0.08 0.24 roughness 0.4 metalness 0 }
-          geometry Box { size 0.13 0.25 0.008 }
-        }
-      ]
     }
     HingeJoint {
       jointParameters HingeJointParameters {
@@ -818,23 +782,11 @@ DEF ROVER Robot {
         translation -0.14 0.19 0.1
         rotation 1 0 0 1.570796
         children [
-          Shape {
-            appearance PBRAppearance { baseColor 0.06 0.06 0.07 roughness 0.85 metalness 0 }
-            geometry Cylinder { radius 0.1 height 0.05 subdivision 32 }
-          }
+          RoverWheel { }
         ]
         boundingObject Cylinder { radius 0.1 height 0.05 }
         physics Physics { density -1 mass 0.12 }
       }
-    }
-    Pose {
-      translation 0.10 0 0.284
-      children [
-        Shape {
-          appearance PBRAppearance { baseColor 0.03 0.39 0.95 emissiveColor 0.01 0.08 0.24 roughness 0.4 metalness 0 }
-          geometry Box { size 0.13 0.25 0.008 }
-        }
-      ]
     }
     HingeJoint {
       jointParameters HingeJointParameters {
@@ -846,10 +798,7 @@ DEF ROVER Robot {
         translation 0.14 0.19 0.1
         rotation 1 0 0 1.570796
         children [
-          Shape {
-            appearance PBRAppearance { baseColor 0.06 0.06 0.07 roughness 0.85 metalness 0 }
-            geometry Cylinder { radius 0.1 height 0.05 subdivision 32 }
-          }
+          RoverWheel { }
         ]
         boundingObject Cylinder { radius 0.1 height 0.05 }
         physics Physics { density -1 mass 0.12 }
