@@ -8,7 +8,17 @@ import math
 from dataclasses import replace
 
 
-def correct_action(decision, *, holding, depth, disabled=(), history=(), allow_exploration=True):
+def correct_action(decision, *, holding, depth, disabled=(), history=(), allow_exploration=True, recovering=False):
+    # Recovery is a higher-priority state than visual approach. Never turn a
+    # non-moving pickup trial or an escape turn into another forward approach.
+    if recovering:
+        if decision.name == 'move':
+            collision = next((a for a in reversed(history)
+                              if a['tool'] == 'move' and a['result'].get('collided')), None)
+            if collision and decision.args['distance'] * collision['args']['distance'] > 0:
+                retreat = -.15 if collision['args']['distance'] > 0 else .15
+                return replace(decision, name='move', args={'distance': retreat}), 'collision_recovery_before_approach'
+        return decision, None
     view = decision.target_view
     if view is None:  # Existing injected policies remain compatible.
         return decision, None
@@ -60,7 +70,7 @@ def correct_action(decision, *, holding, depth, disabled=(), history=(), allow_e
     bearing = math.degrees(math.atan((center - 320) / 320))
     # Pickup tolerates 30 degrees. Near-field boxes are clipped and their
     # midpoint is less reliable; never demand driving alignment before grasp.
-    if (not holding and box[3] >= 475 and depth is not None and depth <= .08
+    if (not holding and depth is not None and depth <= .18 and 'pickup' not in disabled
             and abs(bearing) <= 30 and (forward or decision.name in ('pickup', 'turn'))):
         return use('pickup', {}, 'near_target_pickup_before_contact')
     if abs(bearing) > 10 and (forward or reaching):
@@ -84,14 +94,16 @@ def correct_action(decision, *, holding, depth, disabled=(), history=(), allow_e
     if decision.name not in ('pickup', 'move') or (decision.name == 'move' and not forward):
         return decision, None
     clipped = box[3] >= 475
-    if clipped and depth is not None and depth <= .08:
-        return use('pickup', {}, 'near_target_pickup_before_contact')
+    if forward and depth is not None and depth <= .25:
+        step = min(.03, max(0, depth - .045))
+        if step > .005 and decision.args['distance'] > step:
+            return use('move', {'distance': math.floor(step * 10000) / 10000}, 'small_near_surface_step')
     if decision.name == 'pickup':
         # A fully visible ground object cannot be within reach for this camera.
         # A clipped object with a distant ray return is NOT a near depth reading.
         step = .2 if not clipped else .05
-        if clipped and depth is not None and depth < .6:
-            step = min(.15, max(0, depth - .055))
+        if depth is not None and depth < .6:
+            step = min(.03 if depth <= .25 else .1, max(0, depth - .055))
         if depth is not None:
             step = min(step, max(0, depth - .04))
         if step > .005:

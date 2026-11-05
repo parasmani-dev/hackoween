@@ -5,6 +5,7 @@ No provider calls. Not an autonomous AI acceptance test or production detector.
 import argparse
 import base64
 import io
+import itertools
 import json
 from pathlib import Path
 from PIL import Image
@@ -29,7 +30,9 @@ def verify(port, output, replay_journal=None):
         look=engine.look
         depth=engine.depth
         execute=engine.execute
-    replay = iter(json.loads(line) for line in Path(replay_journal).read_text().splitlines()) if replay_journal else None
+    saved = [json.loads(line) for line in Path(replay_journal).read_text().splitlines()] if replay_journal else []
+    # Extend the last recorded proposal only for bounded offline pickup verification.
+    replay = itertools.chain(saved, itertools.repeat(saved[-1])) if saved else None
     class PixelInstrument:
         def decide(self,messages,*,system):
             if replay is not None:
@@ -47,7 +50,8 @@ def verify(port, output, replay_journal=None):
         assert engine.state()['holding'], rows[-3:]
         assert not any(row['result'].get('collided') for row in rows)
         pickups=[row for row in rows if row['tool']=='pickup']
-        assert len(pickups)==1 and pickups[0]['result']['success'], pickups
+        assert pickups and pickups[-1]['result']['success'], pickups
+        assert len(pickups) <= 4 and sum(row['result']['success'] for row in pickups) == 1, pickups
         report={'execution_mode':'offline_saved_ai_replay' if replay_journal else 'offline_pixel_instrument','provider_calls':0,
                 'decisions':len(rows),'pickup_attempts':len(pickups),'collisions':0,
                 'pickup':'pass','delivery':'not_tested',

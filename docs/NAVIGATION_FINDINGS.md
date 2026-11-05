@@ -116,3 +116,18 @@ to .1565 m approaches, which conflict with the collision-direction guard. The
 rejection loop terminated. These safety/approach-controller interactions remain
 unresolved; this run does not pass any pickup/delivery/no-contact acceptance.
 No automatic retry; 40 of the latest 50-call allowance were unused.
+
+## Recovery priority correction before remaining 40-call validation
+
+Blocked/recovery state now takes precedence over visual approach. Pickup/drop and
+escape turns are preserved; a move toward the previous collision becomes a bounded
+retreat, rather than being reintroduced by the approach controller. Within .18 m
+ray clearance and grasp heading tolerance, try pickup independently of the model's
+clipping report; after failed trials near-surface moves are limited to .03 m.
+
+Offline: 95 regressions pass. Saved failed-approach proposal replay (last proposal
+extended within 30 decisions) achieves pickup in 16 decisions / four trials with
+zero contacts; report runs/approach-priority-replay-verified/report.json. Intentional
+wall collision test preserves failed pickup trial then retreats, clears Blocked,
+zero recovery contacts/stalls; runs/recovery-priority-offline/report.json.
+No provider calls in these checks. User authorizes one remaining 40-call validation.

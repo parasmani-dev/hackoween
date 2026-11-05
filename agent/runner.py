@@ -310,7 +310,8 @@ def run_command(
                 proposed = decision
                 decision, correction = correct_action(decision, holding=state['holding'],
                                                        depth=depth, disabled=disabled, history=history,
-                                                       allow_exploration=blocked_carry_heading is None)
+                                                       allow_exploration=blocked_carry_heading is None,
+                                                       recovering=state['state'] == 'Blocked')
                 if proposed.target_view is not None:
                     decision_report = {'proposal': {'tool': proposed.name, 'args': proposed.args},
                                        'target_view': proposed.target_view,

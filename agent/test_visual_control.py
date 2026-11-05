@@ -29,7 +29,7 @@ class VisualControlTests(unittest.TestCase):
 
     def test_failed_trace_depths_request_approach_instead_of_pickup(self):
         for depth in (.234,.169,.116):
-            actual,_=correct_action(self.proposal(box=[220,300,420,480]),holding=False,depth=depth)
+            actual,_=correct_action(self.proposal(box=[220,300,420,480]),holding=False,depth=depth,disabled=['pickup'])
             self.assertEqual(actual.name,'move')
             self.assertGreater(actual.args['distance'],0)
             self.assertLessEqual(actual.args['distance'],depth-.04)
@@ -83,9 +83,31 @@ class VisualControlTests(unittest.TestCase):
 
     def test_approach_rounding_never_exceeds_range_guard(self):
         actual,_=correct_action(self.proposal('pickup',{},[280,300,360,380]),
-                               holding=False,depth=.14785)
+                               holding=False,depth=.14785,disabled=['pickup'])
         self.assertEqual(actual.name,'move')
         self.assertLessEqual(actual.args['distance'],.14785-.04)
+
+    def test_collision_pickup_is_not_converted_back_to_blocked_approach(self):
+        collision={'tool':'move','args':{'distance':.1102},'result':{'success':False,'collided':True}}
+        actual,reason=correct_action(self.proposal('pickup',{},[210,280,390,440]),
+            holding=False,depth=.196569,history=[collision],recovering=True)
+        self.assertEqual(actual.name,'pickup')
+        self.assertIsNone(reason)
+
+    def test_collision_escape_takes_priority_over_visual_approach(self):
+        for sign in (-1,1):
+            collision={'tool':'move','args':{'distance':sign*.2},'result':{'success':False,'collided':True}}
+            actual,reason=correct_action(self.proposal('move',{'distance':sign*.2},[210,280,390,440]),
+                holding=False,depth=.196569,history=[collision],recovering=True)
+            self.assertEqual(actual.args,{'distance':-sign*.15})
+            self.assertEqual(reason,'collision_recovery_before_approach')
+
+    def test_near_range_overrides_inaccurate_unclipped_box_with_pickup_trial(self):
+        actual,_=correct_action(self.proposal('pickup',{},[210,280,390,440]),holding=False,depth=.150245)
+        self.assertEqual(actual.name,'pickup')
+        actual,_=correct_action(self.proposal('move',{'distance':.11},[210,280,390,440]),
+            holding=False,depth=.15,disabled=['pickup'])
+        self.assertLessEqual(actual.args['distance'],.03)
 
     def test_disabled_pickup_cannot_be_reintroduced(self):
         actual,_=correct_action(self.proposal('move',{'distance':.01},[220,300,420,480]),
