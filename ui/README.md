@@ -8,6 +8,12 @@ With the real Webots engine running on port 8080, enter a command and click Star
 
 ## Offline Start demo
 
+The **Whole-rover view** button switches the camera panel to an operator-only
+overhead JPEG feed when the demo setup publishes one. Set
+`ROVER_SPECTATOR_FILE` on the UI server to that feed's absolute file path.
+The dashboard reads it directly and keeps the run controls visible in both
+views.
+
 With a Webots bridge running, start the real engine using the adapter from
 the repository root. Adjust the loopback bridge port to your Webots instance.
 

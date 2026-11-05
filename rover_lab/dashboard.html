@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jury Demo · Rover Lab</title>
+<link rel="stylesheet" href="/assets/theme.css">
+<meta name="jury-token" content="JURY_TOKEN">
+<!-- SITE NAV -->
+<main class="wrap">
+  <div class="page-intro">
+    <span class="tag kicker">Scenario 2 / Operator console</span>
+    <h1>Jury Demo</h1>
+    <nav class="segmented scenario-switch" aria-label="Choose a scenario">
+      <a class="button" href="/scenario-1">Scenario 1</a>
+      <a class="button" href="/jury" aria-current="page">Scenario 2</a>
+    </nav>
+    <p class="muted">Offline scripted rehearsal · Webots physics · Zero model calls</p>
+  </div>
+  <div class="console">
+  <section class="card controls" aria-label="Run controls">
+  <div class="segmented" role="group" aria-label="Mode">
+    <button id="judge-mode" type="button" aria-pressed="true">Judge demo</button>
+    <button id="custom-mode" type="button" aria-pressed="false">Custom command</button>
+  </div>
+  <p id="fixed-command">Fetch the blue cylinder beside the yellow cone and drop it in the green zone</p>
+  <form id="custom-form" hidden>
+    <label for="command">Fetch command</label>
+    <textarea id="command" rows="2" maxlength="300" required placeholder="Type a fetch command"></textarea>
+    <p>Offline examples</p>
+    <button id="example-cone" type="button">Cylinder beside yellow cone</button>
+    <button id="example-cube" type="button">Cylinder beside red cube</button>
+    <button class="primary" id="run-custom" type="submit">Run command</button>
+  </form>
+  <div class="actions"><label>Layout <select id="layout">
+    <option value="A">A · Corner reveal</option><option value="B">B · Judge swap</option>
+    <option value="C">C · Mirrored approach</option>
+  </select></label>
+  <button id="swap">Apply judge swap</button><button class="primary" id="start">Start fetch</button>
+  <button id="reset">Reset layout</button><button id="collision">Collision rehearsal</button></div>
+  <p id="feedback" role="alert"></p>
+  <p id="status" role="status">Connecting…</p>
+  </section>
+  <div class="metrics">
+    <aside class="card">Correct object delivered<br><strong id="verdict">—</strong></aside>
+    <aside class="card">Decisions used<br><strong id="count">—</strong></aside>
+    <aside class="card">Collisions<br><strong id="contacts">—</strong></aside>
+  </div>
+  <div id="events" class="event-list" aria-label="Run events" aria-live="polite" hidden></div>
+  <div class="feeds">
+    <section class="card">
+      <div class="panel-head"><h2>Rover camera</h2><button id="decision-view" type="button" aria-pressed="false" disabled>Decision frame</button></div>
+      <div id="front-live"><img class="frame" id="front" alt="Live front-camera feed"><p class="feed-note" id="front-state">Connecting…</p></div>
+      <div id="front-decision" hidden><img class="frame" id="latest-frame" alt="Exact front-camera image used for the latest recorded decision"><p class="feed-note" id="latest-frame-state"></p></div>
+    </section>
+    <section class="card"><div class="panel-head"><h2>Spectator view</h2><span class="tag camera-tag">Observer only</span></div><img class="frame" id="spectator" alt="Live high-angle Webots view"><p class="feed-note" id="spectator-state">Connecting…</p></section>
+  </div>
+  <section class="card">
+    <h2>Decision replay</h2>
+    <p id="replay-run">No recorded decisions</p>
+    <div id="steps" class="step-rail" role="group" aria-label="Replay decisions"></div>
+    <p id="action"></p><details id="action-log" hidden><summary>Exact action log</summary><pre id="raw-action"></pre></details>
+    <div class="replay">
+      <article class="card"><h3 id="decision">Exact decision frame</h3><img class="frame" id="before" alt="Exact front-camera frame used for the selected decision"><p id="before-note" class="feed-note"></p></article>
+      <article class="card"><h3>After the action</h3><img class="frame" id="after" alt="Front-camera frame captured after the selected action"><p id="after-note"></p></article>
+    </div>
+  </section>
+  <section class="card">
+    <h2>Three-layout rehearsal results</h2>
+    <p class="muted">Scripted Webots runs with the same command.</p>
+    <div class="table-scroll"><table><thead><tr><th>Layout</th><th>Verdict</th><th>Decisions</th><th>Collisions</th><th>Replay</th></tr></thead>
+    <tbody id="report"></tbody></table></div>
+  </section>
+  </div>
+</main>
+<script src="/assets/feeds.js"></script>
+<script>
+const byId = id => document.getElementById(id);
+const verdicts = {pass: 'Yes', fail_wrong_object: 'No · wrong object', fail_not_reached: 'No · no delivery',
+                  fail_collision: 'No · recovery exhausted', operator_error: 'Unavailable · operator error'};
+let current, replayId, selectedStep, pinnedRun, requestPending = false;
+let displayedSignature = '';
+let eventsSignature;
+let decisionView = false;
+let followLatest = true;
+let mode = 'judge';
+const juryToken = document.querySelector('meta[name=jury-token]').content;
+const juryHeaders = {'X-Jury-Token': juryToken};
+const juryFrame = path => path + '?jury=' + encodeURIComponent(juryToken);
+const controls = ['judge-mode', 'custom-mode', 'layout', 'swap', 'start', 'reset', 'collision',
+                  'command', 'run-custom', 'example-cone', 'example-cube'];
+function updateControls() {
+  for (const id of controls) byId(id).disabled = requestPending || !current || current.running;
+  byId('collision').disabled ||= current?.layout !== 'A';
+}
+async function post(path, body) {
+  if (requestPending) return;
+  requestPending = true;
+  byId('feedback').textContent = '';
+  updateControls();
+  try {
+    const response = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Jury-Token': juryToken},
+                                       body: JSON.stringify(body)});
+    if (!response.ok) throw Error((await response.json()).error || 'Request failed');
+    pinnedRun = null;
+    followLatest = true;
+    await refresh();
+  } catch (error) { byId('feedback').textContent = error.message; }
+  finally { requestPending = false; updateControls(); }
+}
+function updateMode(nextMode) {
+  mode = nextMode;
+  const custom = mode === 'custom';
+  byId('judge-mode').setAttribute('aria-pressed', String(!custom));
+  byId('custom-mode').setAttribute('aria-pressed', String(custom));
+  byId('custom-form').hidden = !custom;
+  for (const id of ['fixed-command', 'swap', 'start', 'collision']) byId(id).hidden = custom;
+  byId('feedback').textContent = '';
+}
+byId('judge-mode').onclick = () => updateMode('judge');
+byId('custom-mode').onclick = () => updateMode('custom');
+byId('example-cone').onclick = () => {
+  byId('command').value = byId('fixed-command').textContent;
+};
+byId('example-cube').onclick = () => {
+  byId('command').value = byId('fixed-command').textContent.replace('yellow cone', 'red cube');
+};
+byId('custom-form').onsubmit = event => {
+  event.preventDefault();
+  const command = byId('command').value.trim();
+  if (command) post('/start', {command});
+};
+byId('layout').onchange = () => post('/select', {layout: byId('layout').value});
+byId('swap').onclick = () => post('/select', {layout: 'B'});
+byId('reset').onclick = () => post('/select', {layout: current.layout});
+byId('start').onclick = () => post('/start', {});
+byId('collision').onclick = () => post('/start', {probe: 'collision'});
+function updateDecisionView() {
+  const latest = current?.rows.at(-1);
+  const button = byId('decision-view');
+  button.disabled = !latest?.frame_path;
+  if (button.disabled) decisionView = false;
+  button.setAttribute('aria-pressed', String(decisionView));
+  byId('front-live').hidden = decisionView;
+  byId('front-decision').hidden = !decisionView;
+  if (decisionView) showFrame('latest-frame', juryFrame(`/replay/${current.run_id}/${latest.frame_path}`),
+    'latest-frame-state', `Exact image for decision ${latest.step}`);
+}
+byId('decision-view').onclick = () => { decisionView = !decisionView; updateDecisionView(); };
+function actionSummary(row) {
+  const args = row.args || {};
+  const outcome = row.result || {};
+  let action = row.tool === 'turn' ? `Turn ${Math.abs(args.degrees).toFixed(1)}° ${args.degrees < 0 ? 'left' : 'right'}`
+    : row.tool === 'move' ? `Move ${Math.abs(args.distance).toFixed(2)} m ${args.distance < 0 ? 'back' : 'forward'}`
+    : ({pickup:'Pick up', drop:'Drop'})[row.tool] || 'No tool dispatched';
+  const result = row.event || ({not_dispatched:'Not dispatched', uncertain:'Outcome uncertain'})[outcome.outcome]
+    || (outcome.success === true ? 'Succeeded' : outcome.success === false ? 'Failed' : 'Outcome unavailable');
+  return `${action} · ${result}`;
+}
+function showEvents(rows) {
+  const events = rows.filter(row => row.event).slice(-4);
+  const signature = JSON.stringify(events.map(row => [row.step, row.event]));
+  if (signature === eventsSignature) return;
+  eventsSignature = signature;
+  const panel = byId('events');
+  panel.hidden = !events.length;
+  panel.replaceChildren(...events.map(row => {
+    const entry = document.createElement('span');
+    entry.className = 'tag';
+    entry.dataset.event = row.event;
+    entry.textContent = `Decision ${row.step} · ${row.event}`;
+    return entry;
+  }));
+}
+function showDecision(run, row) {
+  selectedStep = row?.step;
+  for (const button of byId('steps').children) button.setAttribute('aria-pressed', String(Number(button.dataset.step) === selectedStep));
+  byId('decision').textContent = row ? `Exact frame for decision ${row.step}` : 'Exact decision frame';
+  const prefix = `/replay/${run}/`;
+  showFrame('before', row?.frame_path && juryFrame(prefix + row.frame_path), 'before-note', '', row ? 'Decision frame unavailable.' : '');
+  showFrame('after', row?.after && juryFrame(prefix + row.after), 'after-note', '', row ? 'No fresh post-action frame recorded.' : '');
+  byId('action').textContent = row ? actionSummary(row) : '';
+  byId('action-log').hidden = !row;
+  byId('raw-action').textContent = row ? JSON.stringify({tool:row.tool, args:row.args, result:row.result}, null, 2) : '';
+}
+function renderReplay(run, rows) {
+  const signature = JSON.stringify([run, rows]);
+  if (signature === displayedSignature) return;
+  displayedSignature = signature;
+  if (run !== replayId) { selectedStep = undefined; followLatest = true; }
+  replayId = run;
+  byId('replay-run').textContent = run || 'No recorded decisions';
+  const rail = byId('steps');
+  const buttons = new Map([...rail.children].map(button => [Number(button.dataset.step), button]));
+  for (const row of rows.filter(row => row.event || ['turn', 'pickup'].includes(row.tool))) {
+    let button = buttons.get(row.step);
+    if (!button) {
+      button = document.createElement('button');
+      button.dataset.step = row.step;
+      rail.append(button);
+    }
+    buttons.delete(row.step);
+    button.textContent = `${row.step} · ${row.event || row.tool}`;
+    button.onclick = () => { followLatest = false; showDecision(run, row); };
+  }
+  for (const button of buttons.values()) button.remove();
+  const row = followLatest ? rows.at(-1) : rows.find(row => row.step === selectedStep);
+  showDecision(run, row);
+
+}
+async function loadReplay(run) {
+  if (!run) return;
+  const response = await fetch('/replay/' + run, {headers: juryHeaders});
+  if (response.ok) renderReplay(run, await response.json());
+}
+let reportSignature;
+function renderReport(report) {
+  const signature = JSON.stringify(report);
+  if (signature === reportSignature) return;
+  reportSignature = signature;
+  byId('report').replaceChildren();
+  for (const layout of ['A', 'B', 'C']) {
+    const result = report[layout];
+    const line = byId('report').insertRow();
+    for (const value of [layout, verdicts[result?.verdict] || 'Pending',
+                         result?.decisions ?? '—', result?.collisions ?? '—']) {
+      line.insertCell().textContent = value;
+    }
+    const cell = line.insertCell();
+    if (result?.run_id) {
+      const button = document.createElement('button');
+      button.textContent = 'Open replay';
+      button.onclick = () => { pinnedRun = result.run_id; loadReplay(pinnedRun); };
+      cell.append(button);
+    }
+  }
+}
+async function refresh() {
+  try {
+    const response = await fetch('/status', {headers: juryHeaders, signal: AbortSignal.timeout(2500)});
+    if (!response.ok) throw Error();
+    current = await response.json();
+    byId('layout').value = current.layout;
+    const result = current.result;
+    byId('status').textContent = current.running ? 'Scripted fetch running' :
+      result ? `Run ended · ${result.run_id || result.stop || ''}${result.custom ? ' · ' + result.command : ''}` : 'Ready for a run';
+    byId('verdict').textContent = current.running ? 'Pending' : verdicts[result?.verdict] || '—';
+    byId('verdict').dataset.positive = String(result?.verdict === 'pass');
+    byId('count').textContent = result?.decisions ?? (current.running ? current.rows.length : '—');
+    byId('contacts').textContent = result?.collisions ??
+      (current.running ? current.rows.filter(row => row.event === 'Collision').length : '—');
+    showEvents(current.rows);
+    updateDecisionView();
+    if (!pinnedRun) {
+      if (current.run_id || current.running) renderReplay(current.run_id, current.rows);
+      else if (current.latest && current.latest !== replayId) await loadReplay(current.latest);
+    }
+    renderReport(current.report);
+    updateControls();
+  } catch {
+    current = undefined;
+    updateControls();
+    byId('status').textContent = 'Dashboard status unavailable';
+  }
+}
+async function pollStatus() { await refresh(); setTimeout(pollStatus, 250); }
+updateControls();
+pollStatus();
+startFeed('front', juryFrame('/front'), () => !decisionView);
+startFeed('spectator', juryFrame('/spectator'));
+</script>
+</html>
