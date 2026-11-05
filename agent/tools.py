@@ -6,26 +6,49 @@ import math
 _ACTIONS = {
     "move": ("Drive forward or reverse.", "distance", "Signed distance in metres."),
     "turn": ("Rotate in place.", "degrees", "Degrees, positive clockwise."),
-    "pickup": ("Pick up the object within reach and aligned with the rover.", None, None),
-    "drop": ("Release the held object.", None, None),
+    "pickup": ("Pick up only within 0.5 m of the rover center and 30 degrees of its heading. "
+               "A large camera image does not prove reach. After failure, move or turn to correct "
+               "the pose before retrying; repeating at the same pose is rejected.", None, None),
+    "drop": ("Release the held object. Approach the requested zone before releasing. "
+             "If released outside the zone, pick it up again and correct position before retrying.", None, None),
 }
 
 
-def tool_definitions():
-    return [
+def tool_definitions(available_actions=None, *, visual_memory=False):
+    allowed = set(_ACTIONS) if available_actions is None else set(available_actions)
+    if not allowed or not allowed <= _ACTIONS.keys():
+        raise ValueError("Choose at least one known rover action.")
+    definitions = [
         {
             "name": name,
             "description": description,
             "strict": True,
             "input_schema": {
                 "type": "object",
-                "properties": {field: {"type": "number", "description": units}} if field else {},
-                "required": [field] if field else [],
+                "properties": {**({field: {"type": "number", "description": units}} if field else {}),
+                    **({"visual_observation": {"type": "string", "description":
+                        "Camera observation under 400 characters: target pixel bounds [left,top,right,bottom] in 640x480 or absent/occluded; color/shape; visible or clipped; clear route. Centered means midpoint x=256..384. While holding, describe the floor drop zone. Update from this image; do not invent unseen objects or coordinates."}} if visual_memory else {})},
+                "required": ([field] if field else []) + (["visual_observation"] if visual_memory else []),
                 "additionalProperties": False,
             },
         }
         for name, (description, field, units) in _ACTIONS.items()
+        if name in allowed
     ]
+    if visual_memory:
+        for definition in definitions:
+            schema = definition['input_schema']
+            schema['properties']['target_view'] = {
+                'type': 'object', 'additionalProperties': False,
+                'properties': {
+                    'box': {'anyOf': [{'type': 'array', 'items': {'type': 'number'}}, {'type': 'null'}],
+                            'description': 'CURRENT image target bounds [left,top,right,bottom] in 640x480, null if absent. While holding, bounds of requested FLOOR zone, never held object or wall trim.'},
+                    'path_clear': {'type': 'boolean', 'description': 'Visible swept path toward target is clear of other objects, including clearance for carried object.'},
+                    'floor_zone': {'type': 'boolean', 'description': 'True only when the requested drop zone is visibly a bounded patch on horizontal floor, not wall trim.'}},
+                'required': ['box', 'path_clear', 'floor_zone']}
+            schema['required'].append('target_view')
+    return definitions
+
 
 
 def finite_number(value):
@@ -43,3 +66,31 @@ def validate_action(name, args):
         raise ValueError("Invalid rover action fields.")
     if field and not finite_number(args[field]):
         raise ValueError("Rover action requires a finite number.")
+
+
+def extract_visual_observation(args):
+    """Separate model-authored memory from the unchanged engine action payload."""
+    if not isinstance(args, dict):
+        raise ValueError("Invalid action fields.")
+    args = dict(args)
+    observation = args.pop("visual_observation", "")
+    if not isinstance(observation, str) or len(observation) > 1000:
+        raise ValueError("Invalid visual observation.")
+    return args, observation[:400]
+
+
+def extract_target_view(args):
+    args = dict(args)
+    view = args.pop('target_view', None)
+    if view is None:
+        return args, None
+    if not isinstance(view, dict) or set(view) != {'box', 'path_clear', 'floor_zone'}:
+        raise ValueError('Invalid camera target report.')
+    if type(view['path_clear']) is not bool or type(view['floor_zone']) is not bool:
+        raise ValueError('Invalid camera target flags.')
+    box = view['box']
+    if box is not None and (not isinstance(box, list) or len(box) != 4
+            or not all(finite_number(x) for x in box)
+            or not (0 <= box[0] < box[2] <= 640 and 0 <= box[1] < box[3] <= 480)):
+        raise ValueError('Invalid camera target bounds.')
+    return args, view

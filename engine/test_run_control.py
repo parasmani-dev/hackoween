@@ -8,6 +8,17 @@ from engine.run_control import RunConflict, RunControl
 
 
 class RunControlTests(unittest.TestCase):
+    def test_depth_is_optional_and_never_returns_metadata_or_invalid_values(self):
+        self.assertIsNone(RunControl(object()).depth())
+        adapter = Mock()
+        control = RunControl(adapter)
+        for value in (None, 0.0, 0.07, 10.0):
+            adapter.depth.return_value = value
+            self.assertEqual(control.depth(), value)
+        for value in (True, -1, 11, float('nan'), {'object': 'private'}):
+            adapter.depth.return_value = value
+            with self.assertRaises(ValueError):
+                control.depth()
     def test_capture_finalizes_once_on_collision_or_explicit_finish(self):
         for collision in (False, True):
             with self.subTest(collision=collision):

@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass
 from http.client import HTTPException
 
-from .tools import finite_number, tool_definitions, validate_action
+from .tools import extract_target_view, extract_visual_observation, finite_number, tool_definitions, validate_action
 from .transport import request
 
 
@@ -18,12 +18,14 @@ class Decision:
     name: str
     args: dict
     usage: dict[str, int]
+    observation: str = ""
+    target_view: dict | None = None
 
 
 class ClaudeClient:
-    def __init__(self, *, timeout=30, max_tokens=512, audit_request=None):
+    def __init__(self, *, timeout=30, max_tokens=512, audit_request=None, model=None):
         self._api_key = os.environ.get("ANTHROPIC_API_KEY")
-        self.model = os.environ.get("CLAUDE_MODEL")
+        self.model = model or os.environ.get("CLAUDE_MODEL")
         if not self._api_key or not self.model:
             raise ClaudeError("Set ANTHROPIC_API_KEY and CLAUDE_MODEL.")
         if not finite_number(timeout) or timeout <= 0:
@@ -33,6 +35,12 @@ class ClaudeClient:
         self.timeout = timeout
         self.max_tokens = max_tokens
         self._audit_request = audit_request
+        self._available_actions = None
+
+    def set_available_actions(self, names):
+        names = tuple(names)
+        tool_definitions(names)
+        self._available_actions = names
 
     def decide(self, messages, *, system):
         payload = {
@@ -40,7 +48,7 @@ class ClaudeClient:
             "max_tokens": self.max_tokens,
             "messages": messages,
             "system": system,
-            "tools": tool_definitions(),
+            "tools": tool_definitions(self._available_actions, visual_memory=True),
             "tool_choice": {"type": "any", "disable_parallel_tool_use": True},
         }
         if self._audit_request is not None:
@@ -61,13 +69,17 @@ class ClaudeClient:
             if len(calls) != 1:
                 raise ValueError
             name, args = calls[0]["name"], calls[0]["input"]
+            args, observation = extract_visual_observation(args)
+            args, view = extract_target_view(args)
             validate_action(name, args)
+            if self._available_actions is not None and name not in self._available_actions:
+                raise ValueError("Unavailable action.")
             usage = {key: response["usage"][key] for key in ("input_tokens", "output_tokens")}
             for key in ("cache_creation_input_tokens", "cache_read_input_tokens"):
                 if response["usage"].get(key) is not None:
                     usage[key] = response["usage"][key]
             if any(type(value) is not int or value < 0 for value in usage.values()):
                 raise ValueError
-            return Decision(name, args, usage)
+            return Decision(name, args, usage, observation, view)
         except (OSError, HTTPException, ValueError, KeyError, TypeError):
             raise ClaudeError("Claude did not return a valid rover decision.") from None

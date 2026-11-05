@@ -6,9 +6,10 @@ import socket
 
 
 class WebotsAdapter:
-    def __init__(self, port=8765, timeout=30):
+    def __init__(self, port=8765, timeout=30, enable_depth=False):
         self.port = port
         self.timeout = timeout
+        self.enable_depth = enable_depth
 
     def _call(self, method, *args):
         with socket.create_connection(("127.0.0.1", self.port), self.timeout) as connection:
@@ -26,7 +27,7 @@ class WebotsAdapter:
         return base64.b64decode(self._call("look"), validate=True)
 
     def depth(self):
-        return None
+        return self._call("depth") if self.enable_depth else None
 
     def move(self, distance):
         return self._call("move", distance)
