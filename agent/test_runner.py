@@ -67,6 +67,28 @@ class RunnerTests(unittest.TestCase):
         self.assertIn('drop zone', contexts[3]['previous_visual_observation'])
         self.engine.execute.assert_any_call('pickup', {})
 
+    def test_controller_records_proposal_and_executes_one_corrected_action(self):
+        self.claude.decide.return_value = Decision('pickup', {}, {}, 'Target on left',
+            {'box': [70, 250, 230, 430], 'path_clear': True, 'floor_zone': False})
+        result = self.run_rover(max_decisions=1)
+        row = self.records(result)[0]
+        self.assertEqual(row['proposal']['tool'], 'pickup')
+        self.assertEqual(row['tool'], 'turn')
+        self.assertEqual(row['controller_correction'], 'align_to_reported_target')
+        self.assertEqual(self.engine.execute.call_count, 1)
+        self.assertEqual(self.engine.look.call_count, 2)
+
+    def test_carry_collision_survives_reverse_until_heading_changes(self):
+        carrying = {**state('Carry'), 'holding': True}
+        self.engine.state.return_value = carrying
+        self.engine.execute.side_effect = [{'success': False, 'collided': True},
+                                           {'success': True, 'collided': False}]
+        self.claude.decide.side_effect = [Decision('move', {'distance': .2}, {}),
+            Decision('move', {'distance': -.3}, {}), Decision('move', {'distance': .2}, {})]
+        result = self.run_rover(max_decisions=3)
+        self.assertEqual(self.engine.execute.call_count, 2)
+        self.assertEqual(self.records(result)[2]['result']['outcome'], 'not_dispatched')
+
     def setUp(self):
         self.temp = TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

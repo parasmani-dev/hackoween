@@ -17,10 +17,10 @@ class AffordanceTests(unittest.TestCase):
             with self.subTest(provider=client_type.__name__), patch(target) as request:
                 if client_type is ClaudeClient:
                     response = {'stop_reason': 'tool_use', 'content': [{'type': 'tool_use', 'name': 'move',
-                                'input': {'distance': 0.05, 'visual_observation': 'Red sphere centered.'}}], 'usage': {'input_tokens': 1, 'output_tokens': 1}}
+                                'input': {'distance': 0.05, 'visual_observation': 'Red sphere centered.', 'target_view': {'box': [220, 300, 420, 480], 'path_clear': True, 'floor_zone': False}}}], 'usage': {'input_tokens': 1, 'output_tokens': 1}}
                 else:
                     response = {'choices': [{'finish_reason': 'tool_calls', 'message': {'tool_calls': [
-                        {'type': 'function', 'function': {'name': 'move', 'arguments': '{"distance":0.05,"visual_observation":"Red sphere centered."}'}}]}}],
+                        {'type': 'function', 'function': {'name': 'move', 'arguments': '{"distance":0.05,"visual_observation":"Red sphere centered.","target_view":{"box":[220,300,420,480],"path_clear":true,"floor_zone":false}}'}}]}}],
                         'usage': {'prompt_tokens': 1, 'completion_tokens': 1}}
                 request.return_value = ('application/json', json.dumps(response).encode())
                 client = client_type()
@@ -29,6 +29,7 @@ class AffordanceTests(unittest.TestCase):
                 self.assertEqual(decision.name, 'move')
                 self.assertEqual(decision.args, {'distance': 0.05})
                 self.assertEqual(decision.observation, 'Red sphere centered.')
+                self.assertEqual(decision.target_view['box'], [220, 300, 420, 480])
                 offered = request.call_args.kwargs['payload']['tools']
                 names = [t['name'] if 'name' in t else t['function']['name'] for t in offered]
                 self.assertEqual(names, ['move', 'turn', 'drop'])

@@ -14,7 +14,7 @@ from agent.engine import EngineClient
 from rover_lab.live import LiveRun
 
 
-def sphere_center(image):
+def sphere_center(image, *, bounds=False):
     sample = image.resize((160, 120)).convert('RGB')
     pixels = sample.load()
     remaining = {(x, y) for y in range(35, 120) for x in range(160)
@@ -37,10 +37,11 @@ def sphere_center(image):
             fill = len(found)/(width*height)
             # A sphere's projected silhouette is round; the red cube fills its rectangle.
             if (0.65 < width/height < 1.5 and fill < 0.87) or max(ys) >= 118:
-                components.append((max(ys), sum(xs)/len(xs)*4, fill))
+                components.append((max(ys), sum(xs)/len(xs)*4, fill,
+                                   [min(xs)*4, min(ys)*4, (max(xs)+1)*4, (max(ys)+1)*4]))
     if not components:
         raise AssertionError('Offline instrument could not identify a round red component')
-    return max(components)[1]
+    return max(components)[3 if bounds else 1]
 
 
 def verify(engine_port, output):

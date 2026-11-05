@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass
 from http.client import HTTPException
 
-from .tools import extract_visual_observation, finite_number, tool_definitions, validate_action
+from .tools import extract_target_view, extract_visual_observation, finite_number, tool_definitions, validate_action
 from .transport import request
 
 
@@ -19,6 +19,7 @@ class Decision:
     args: dict
     usage: dict[str, int]
     observation: str = ""
+    target_view: dict | None = None
 
 
 class ClaudeClient:
@@ -69,6 +70,7 @@ class ClaudeClient:
                 raise ValueError
             name, args = calls[0]["name"], calls[0]["input"]
             args, observation = extract_visual_observation(args)
+            args, view = extract_target_view(args)
             validate_action(name, args)
             if self._available_actions is not None and name not in self._available_actions:
                 raise ValueError("Unavailable action.")
@@ -78,6 +80,6 @@ class ClaudeClient:
                     usage[key] = response["usage"][key]
             if any(type(value) is not int or value < 0 for value in usage.values()):
                 raise ValueError
-            return Decision(name, args, usage, observation)
+            return Decision(name, args, usage, observation, view)
         except (OSError, HTTPException, ValueError, KeyError, TypeError):
             raise ClaudeError("Claude did not return a valid rover decision.") from None

@@ -18,7 +18,7 @@ def tool_definitions(available_actions=None, *, visual_memory=False):
     allowed = set(_ACTIONS) if available_actions is None else set(available_actions)
     if not allowed or not allowed <= _ACTIONS.keys():
         raise ValueError("Choose at least one known rover action.")
-    return [
+    definitions = [
         {
             "name": name,
             "description": description,
@@ -35,6 +35,21 @@ def tool_definitions(available_actions=None, *, visual_memory=False):
         for name, (description, field, units) in _ACTIONS.items()
         if name in allowed
     ]
+    if visual_memory:
+        for definition in definitions:
+            schema = definition['input_schema']
+            schema['properties']['target_view'] = {
+                'type': 'object', 'additionalProperties': False,
+                'properties': {
+                    'box': {'anyOf': [{'type': 'array', 'items': {'type': 'number'},
+                                     'minItems': 4, 'maxItems': 4}, {'type': 'null'}],
+                            'description': 'CURRENT image target bounds [left,top,right,bottom] in 640x480, null if absent. While holding, bounds of requested FLOOR zone, never held object or wall trim.'},
+                    'path_clear': {'type': 'boolean', 'description': 'Visible swept path toward target is clear of other objects, including clearance for carried object.'},
+                    'floor_zone': {'type': 'boolean', 'description': 'True only when the requested drop zone is visibly a bounded patch on horizontal floor, not wall trim.'}},
+                'required': ['box', 'path_clear', 'floor_zone']}
+            schema['required'].append('target_view')
+    return definitions
+
 
 
 def finite_number(value):
@@ -63,3 +78,20 @@ def extract_visual_observation(args):
     if not isinstance(observation, str) or len(observation) > 1000:
         raise ValueError("Invalid visual observation.")
     return args, observation[:400]
+
+
+def extract_target_view(args):
+    args = dict(args)
+    view = args.pop('target_view', None)
+    if view is None:
+        return args, None
+    if not isinstance(view, dict) or set(view) != {'box', 'path_clear', 'floor_zone'}:
+        raise ValueError('Invalid camera target report.')
+    if type(view['path_clear']) is not bool or type(view['floor_zone']) is not bool:
+        raise ValueError('Invalid camera target flags.')
+    box = view['box']
+    if box is not None and (not isinstance(box, list) or len(box) != 4
+            or not all(finite_number(x) for x in box)
+            or not (0 <= box[0] < box[2] <= 640 and 0 <= box[1] < box[3] <= 480)):
+        raise ValueError('Invalid camera target bounds.')
+    return args, view

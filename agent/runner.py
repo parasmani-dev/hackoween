@@ -16,6 +16,7 @@ from .claude import ClaudeClient, ClaudeError
 from .engine import ActionOutcomeUncertain, EngineClient, EngineError
 from .openai_client import OpenAIClient, OpenAIError
 from .tools import finite_number
+from .visual_control import correct_action
 
 
 MAX_DECISIONS = 60
@@ -35,6 +36,10 @@ SYSTEM_PROMPT = (
     "depth is at most 0.08 m, try pickup BEFORE any further forward movement. "
     "If the target is already visible, use the direct small alignment correction, not a "
     "45-degree search turn that overshoots it. "
+    "Return target_view for the CURRENT image with every action. When holding, box must "
+    "describe the requested floor zone; set box=null and floor_zone=false when it is not "
+    "visible. Never substitute the carried object or wall stripe. The controller checks "
+    "your proposed action against these image bounds and depth and logs any correction. "
     "VISUAL CHECK: begin visual_observation with estimated target pixel bounds "
     "[left,top,right,bottom] in the 640x480 image, or absent/occluded. Then name its "
     "color and silhouette. Check the numeric midpoint before calling it centered: "
@@ -218,6 +223,8 @@ def run_command(
     turns_without_progress = 0
     failed_manipulations = {}
     visual_memory = ""
+    blocked_carry_heading = None
+    decision_report = {}
 
     try:
         with (run_dir / "steps.jsonl").open("x", encoding="utf-8") as journal:
@@ -230,11 +237,12 @@ def run_command(
             def log_decision(step, timestamp, tool, args, result, frame_name):
                 journal.write(json.dumps({
                     "step": step, "timestamp": timestamp, "tool": tool, "args": args,
-                    "result": result, "frame_path": frame_name,
+                    "result": result, "frame_path": frame_name, **decision_report,
                 }) + "\n")
                 journal.flush()
 
             for step in range(1, max_decisions + 1):
+                decision_report = {}
                 depth_reader = getattr(engine, "depth", None)
                 depth = depth_reader() if callable(depth_reader) else None
                 depth = depth if finite_number(depth) and 0 <= depth <= 10 else None
@@ -255,6 +263,13 @@ def run_command(
                            " Your current objective is acquisition: holding is false; align, approach "
                            "and pick up the requested object before navigating to the zone.")
                 system += _recovery_prompt(history)
+                if blocked_carry_heading is not None:
+                    if abs(math.remainder(state['heading'] - blocked_carry_heading, 360)) >= 15:
+                        blocked_carry_heading = None
+                    else:
+                        system += (" This carrying heading led to contact. Reversing alone does not clear "
+                                   "the blocked route. Turn at least 15 degrees toward visible clear floor "
+                                   "before another forward drive.")
                 if max_forward is not None:
                     system += (f" Current forward surface clearance is {depth:.3f} m. "
                                f"Do not request a positive move beyond {max_forward:.3f} m. "
@@ -292,6 +307,14 @@ def run_command(
                 for key, count in decision.usage.items():
                     usage[key] = usage.get(key, 0) + count
 
+                proposed = decision
+                decision, correction = correct_action(decision, holding=state['holding'],
+                                                       depth=depth, disabled=disabled)
+                if proposed.target_view is not None:
+                    decision_report = {'proposal': {'tool': proposed.name, 'args': proposed.args},
+                                       'target_view': proposed.target_view,
+                                       'visual_observation': proposed.observation,
+                                       'controller_correction': correction}
                 timestamp = datetime.now(timezone.utc).isoformat()
                 repeats_collision = (
                     decision.name == "move" and history and history[-1]["tool"] == "move"
@@ -301,7 +324,9 @@ def run_command(
                 )
                 unsafe_forward = (decision.name == "move" and max_forward is not None
                                   and decision.args["distance"] > max_forward)
-                if unsafe_forward or decision.name in disabled or repeats_collision or (decision.name == "turn" and (
+                blocked_carry = (blocked_carry_heading is not None and decision.name == 'move'
+                                 and decision.args['distance'] > 0)
+                if blocked_carry or unsafe_forward or decision.name in disabled or repeats_collision or (decision.name == "turn" and (
                     turns_without_progress >= MAX_TURNS_WITHOUT_PROGRESS
                     or (alternating_turns
                         and decision.args["degrees"] * history[-1]["args"]["degrees"] < 0)
@@ -330,6 +355,8 @@ def run_command(
                     failed_manipulations[decision.name] = _pose(state)
                 if decision.name == "pickup" and result["success"]:
                     visual_memory = "Pickup confirmed by action result. Track the requested drop zone now."
+                if state['holding'] and decision.name == 'move' and result.get('collided'):
+                    blocked_carry_heading = state['heading']
                 history.append(action)
                 if decision.name == "turn":
                     turns_without_progress += 1
