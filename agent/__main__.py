@@ -19,12 +19,15 @@ def main():
     parser.add_argument("--max-decisions", type=int, default=MAX_DECISIONS)
     parser.add_argument("--audit-requests", action="store_true",
                         help="Save model request bodies locally without HTTP headers")
+    parser.add_argument("--model-pickup-checks", action="store_true",
+                        help="Use model-only decisions instead of bounded camera-tracked local approach and pickup feedback")
     args = parser.parse_args()
     try:
         result = run_command(
             args.command, engine=EngineClient(args.engine_url), output_root=args.output_root,
             audit_requests=args.audit_requests, provider=args.provider,
             max_decisions=args.max_decisions,
+            local_pickup_checks=not args.model_pickup_checks,
         )
     except (ClaudeError, OpenAIError, ValueError) as error:
         parser.error(str(error))

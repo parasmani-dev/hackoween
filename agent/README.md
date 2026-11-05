@@ -1,7 +1,74 @@
 # Rover agent
 
+Motion tools accept moves from -10 to 10 metres and turns from -360 to 360 degrees per action. The tool schemas and client validation use the simulator bridge limits. The HTTP engine rejects requests outside those limits before dispatch, preserving the active run.
+Claude's strict schema subset rejects numeric minimum/maximum keywords, so its
+wire schemas describe the ranges in text. Local validation still enforces both
+limits before dispatch; the OpenAI schemas retain the numeric constraints.
+The Claude adapter uses automatic tool choice for Sonnet 5.5 compatibility and
+explicitly requests one call. Text-only, parallel, or invalid calls are rejected
+before rover dispatch. Requests have a 60-second timeout and 2,048-token output cap.
+
+Both providers use the same navigation guards. The runner rejects zero-distance
+moves, remembers the last four collided robot approaches across compact-history
+eviction, and rejects re-entering a nearby blocked direction until the rover takes
+a detour. After a failed pickup, another pickup requires a new camera viewpoint.
+During collision recovery, a chosen side turn cannot immediately be reversed:
+the rover must first create over 0.3 m of lateral clearance from the failed
+approach, or keep scanning for a safe route. Forward drift alone does not clear
+this recovery state. This clearance uses the robot footprint, not target identity.
+Search memory tracks observed heading sectors in up to sixteen areas using public
+rover poses and advises changing viewpoint after a full scan. This memory belongs
+to one command and is discarded on the next run. It contains no fixture locations
+or evaluator truth. Rejections remain in `steps.jsonl`; `navigation.jsonl` records
+the specific guard reason. These guards constrain actions; they do not guarantee
+visual recognition, a collision-free route, or delivery.
+The prompt supplies the rover's fixed camera calibration (0.22 m ahead of its
+center, 0.5 m high, 10 degrees down, 90-degree horizontal FOV). Pickup distance is
+measured from the rover center; near-target guidance uses 0.02 m probes.
+The middle third of the camera is sufficient pickup alignment within the
+30-degree grasp tolerance. The prompt prioritizes a pickup trial over further
+fine alignment once the base is clipped, and asks for a broad-face approach to
+cubes rather than driving into a corner. Recovery retains both movement and
+turning so a blocked side route can be scanned further; the directional guards
+still reject reversing a detour or driving back into known contact.
+After a failed pickup on the same approach, forward probes are limited to 0.02 m
+and a pickup check is required before another forward probe. Pose change is
+checked so no-op turns or new filenames cannot unlock duplicate pickups. Turns
+of 2 degrees or less, pickup while holding, and drop without holding are rejected.
+Collision checks cover the proposed motion segment. Completing a real lateral
+detour retires nearby co-oriented bans while retaining orthogonal and distant
+collision evidence.
+
+Each provider can return a short `OBSERVATION:` line alongside its single tool
+call. Only that factual text line is retained; thinking blocks and subsequent
+reasoning are excluded. `observations.jsonl` records the note's numbered frame
+and public rover pose. The next request includes the initial observation and up
+to six recent notes, labeled as fallible camera observations. No extra perception
+call is made per decision. Notes containing reserved fixture/evaluator or
+credential markers are discarded. Visual memory resets with each command.
+
+The CLI and local website enable a hybrid approach profile: Claude/OpenAI handles
+visual navigation; a bounded local controller tracks a clipped target and runs
+2 cm approach probes with pickup feedback. Acquisition requires explicit clipped
+base evidence and a confident, centered foreground component. The controller
+checks visual continuity after each advance and returns control to the model on
+tracking loss, ambiguity, contact, a turn, or a 12-probe batch limit. It uses only
+camera pixels and public action feedback, with no target positions or evaluator
+data. Low-saturation or untrackable objects remain under model control.
+
+All local actions still count toward the 60-decision limit. `model_requests`
+counts provider invocations separately. `decision_sources.jsonl` identifies
+`model`, `local_approach_probe`, or `local_pickup_check` for each step and maps
+provider request indices to steps. This profile is not an entirely model-decided
+run. Use CLI `--model-pickup-checks` for model-only decisions. Python callers keep
+the previous behavior by default; opt in with `local_pickup_checks=True`.
+
 Install the dependencies with `python -m pip install -r agent/requirements.txt`.
-Set `ANTHROPIC_API_KEY` and `CLAUDE_MODEL` in the environment. After the
+Set `ANTHROPIC_API_KEY` and `CLAUDE_MODEL` in the environment or in the repository-root
+`.env` file. Both provider clients load their own key/model from that file,
+independent of the working directory. Existing environment values take precedence;
+other `.env` variables are ignored and credential values are never interpolated.
+Keep `.env` ignored by Git and never paste keys into commands or issue comments. After the
 operator starts an engine run, invoke the agent from the repository root.
 
 ```powershell
@@ -39,7 +106,10 @@ before the send attempt. The audit includes the command and camera pixels in
 base64. Keep it local and review the bodies before sharing findings. HTTP
 headers and API credentials are excluded.
 
-Match audit line N to decision N in `steps.jsonl`, including rejected proposals.
+Use `decision_sources.jsonl` to match audit request N to its corresponding step
+in `steps.jsonl`, including rejected proposals. Local controller steps have no
+provider request. For older model-only artifacts without a source map, audit
+line N corresponds to decision N.
 Decode the image and compare it to the referenced PNG. Check that the command,
 allowlisted rover state and action history, and four public tools are the only
 run context. Keep fixture identity, evaluator results, and native POV out of
