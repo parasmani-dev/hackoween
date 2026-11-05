@@ -2,26 +2,32 @@ from controller import Supervisor
 from PIL import Image
 from pathlib import Path
 import os
-import time
 
 robot = Supervisor()
+arena = robot.getFromDef("ARENA_CAMERA")
+front = robot.getFromDef("FRONT_CAMERA")
+viewpoint = robot.getFromDef("WORLD_VIEWPOINT")
 # Keep the full wall in the rover POV and reveal its low cutaway in the arena view.
-robot.getFromDef("SOUTH_FULL").setVisibility(robot.getFromDef("ARENA_CAMERA"), False)
-robot.getFromDef("SOUTH_LOW").setVisibility(robot.getFromDef("FRONT_CAMERA"), False)
+robot.getFromDef("SOUTH_FULL").setVisibility(arena, False)
+robot.getFromDef("SOUTH_LOW").setVisibility(front, False)
+
+# The larger parts share the live rover's body and wheel poses.
+for part in ("BODY", "WHEEL_0", "WHEEL_1", "WHEEL_2", "WHEEL_3"):
+    robot.getFromDef(f"ROVER_{part}").setVisibility(arena, False)
+    display = robot.getFromDef(f"SPECTATOR_{part}")
+    display.setVisibility(front, False)
+    display.setVisibility(viewpoint, False)
+
 period = int(robot.getBasicTimeStep())
 camera = robot.getDevice("overhead")
 camera.enable(period)
+size = (camera.getWidth(), camera.getHeight())
 path = Path(os.environ["ROVER_SPECTATOR_FILE"])
 pending = path.with_suffix(".tmp")
-last = 0
 while robot.step(period) != -1:
-    now = time.monotonic()
-    if now - last < .08:
-        continue
     try:
-        image = Image.frombytes("RGB", (640, 480), camera.getImage(), "raw", "BGRX")
-        image.save(pending, "JPEG", quality=80)
+        image = Image.frombytes("RGB", size, camera.getImage(), "raw", "BGRX")
+        image.save(pending, "JPEG", quality=90, subsampling=0)
         pending.replace(path)
     except (OSError, ValueError):
         continue
-    last = now

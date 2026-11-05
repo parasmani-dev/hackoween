@@ -1,14 +1,17 @@
 #VRML_SIM R2025a utf8
 
+EXTERNPROTO "../protos/RoverBody.proto"
+EXTERNPROTO "../protos/RoverWheel.proto"
+
 WorldInfo { basicTimeStep 32 coordinateSystem "ENU" }
-Viewpoint { position 0 0 10 }
-Background { skyColor [ 0.47 0.50 0.57 ] }
+DEF WORLD_VIEWPOINT Viewpoint { position 0 0 10 }
+Background { skyColor [ 0.83 0.81 0.77 ] }
 DirectionalLight { direction -0.5 0.4 -1 intensity 1 ambientIntensity 0.65 }
 DEF FLOOR Solid {
   translation 0 0 -0.05
   children [
     Shape {
-      appearance PBRAppearance { baseColor 0.79 0.77 0.73 roughness 0.8 metalness 0 }
+      appearance PBRAppearance { baseColorMap ImageTexture { url [ "textures/floor-grid.png" ] filtering 5 } roughness 0.8 metalness 0 }
       geometry Box { size 6 5 0.1 }
     }
   ]
@@ -17,6 +20,24 @@ DEF FLOOR Solid {
 DEF NORTH Solid {
   translation 0 2.55 0.75
   children [
+    # Decorative plaque on the inside of the north wall.
+    Pose {
+      translation 0 -0.065 0.38
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColorMap ImageTexture { url [ "textures/arena-sign.png" ] repeatS FALSE repeatT FALSE filtering 5 }
+            roughness 0.82
+            metalness 0
+          }
+          geometry IndexedFaceSet {
+            coord Coordinate { point [ -1.04 0 -0.227, 1.04 0 -0.227, 1.04 0 0.227, -1.04 0 0.227 ] }
+            coordIndex [ 0 1 2 3 -1 ]
+            texCoord TextureCoordinate { point [ 0 0, 1 0, 1 1, 0 1 ] }
+          }
+        }
+      ]
+    }
     Pose {
       translation 0 0 -0.75
       rotation 0 0 1 0
@@ -25,44 +46,8 @@ DEF NORTH Solid {
             translation 0.0000 0.0000 0.7300
             children [
               Shape {
-                appearance DEF WALL_UPPER PBRAppearance { baseColor 0.69 0.73 0.81 roughness 0.8 metalness 0 }
+                appearance DEF WALL_UPPER PBRAppearance { baseColor 0.94 0.91 0.85 roughness 0.8 metalness 0 }
                 geometry Box { size 6.2000 0.1000 1.4600 }
-              }
-            ]
-          }
-          Pose {
-            translation 0.0000 -0.0520 0.3000
-            children [
-              Shape {
-                appearance DEF WALL_PANEL_SEAM PBRAppearance { baseColor 0.25 0.35 0.47 roughness 0.8 metalness 0 }
-                geometry Box { size 6.2000 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation -2.6571 -0.0600 0.3000
-            children [
-              Shape {
-                appearance DEF WALL_PANEL PBRAppearance { baseColor 0.31 0.43 0.58 roughness 0.8 metalness 0 }
-                geometry Box { size 0.8737 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation -1.7714 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8737 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation -0.8857 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8737 0.0120 0.6000 }
               }
             ]
           }
@@ -70,35 +55,8 @@ DEF NORTH Solid {
             translation 0.0000 -0.0600 0.3000
             children [
               Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8737 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation 0.8857 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8737 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation 1.7714 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8737 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation 2.6571 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8737 0.0120 0.6000 }
+                appearance DEF WALL_PANEL PBRAppearance { baseColor 0.10 0.53 0.53 roughness 0.8 metalness 0 }
+                geometry Box { size 6.2000 0.0120 0.6000 }
               }
             ]
           }
@@ -106,7 +64,7 @@ DEF NORTH Solid {
             translation 0.0000 -0.0640 0.0450
             children [
               Shape {
-                appearance DEF WALL_TRIM PBRAppearance { baseColor 0.88 0.88 0.90 roughness 0.8 metalness 0 }
+                appearance DEF WALL_TRIM PBRAppearance { baseColor 0.88 0.90 0.84 roughness 0.8 metalness 0 }
                 geometry Box { size 6.2000 0.0330 0.0900 }
               }
             ]
@@ -133,7 +91,7 @@ DEF NORTH Solid {
             translation -2.6700 -0.0770 0.7700
             children [
               Shape {
-                appearance DEF WALL_WOOD_BACKING PBRAppearance { baseColor 0.45 0.28 0.15 roughness 0.8 metalness 0 }
+                appearance DEF WALL_WOOD_BACKING PBRAppearance { baseColor 0.49 0.31 0.12 roughness 0.8 metalness 0 }
                 geometry Box { size 0.5500 0.0220 1.3700 }
               }
             ]
@@ -142,7 +100,7 @@ DEF NORTH Solid {
             translation -2.8950 -0.1030 0.7700
             children [
               Shape {
-                appearance DEF WALL_WOOD PBRAppearance { baseColor 0.65 0.42 0.23 roughness 0.8 metalness 0 }
+                appearance DEF WALL_WOOD PBRAppearance { baseColor 0.93 0.64 0.22 roughness 0.8 metalness 0 }
                 geometry Box { size 0.0470 0.0460 1.3700 }
               }
             ]
@@ -151,7 +109,7 @@ DEF NORTH Solid {
             translation -2.8200 -0.1030 0.7700
             children [
               Shape {
-                appearance DEF WALL_WOOD_LIGHT PBRAppearance { baseColor 0.77 0.54 0.31 roughness 0.8 metalness 0 }
+                appearance DEF WALL_WOOD_LIGHT PBRAppearance { baseColor 1 0.77 0.31 roughness 0.8 metalness 0 }
                 geometry Box { size 0.0470 0.0460 1.3700 }
               }
             ]
@@ -333,74 +291,11 @@ DEF SOUTH Solid {
             ]
           }
           Pose {
-            translation 0.0000 -0.0520 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL_SEAM
-                geometry Box { size 6.2000 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation -2.6571 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8737 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation -1.7714 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8737 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation -0.8857 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8737 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
             translation 0.0000 -0.0600 0.3000
             children [
               Shape {
                 appearance USE WALL_PANEL
-                geometry Box { size 0.8737 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation 0.8857 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8737 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation 1.7714 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8737 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation 2.6571 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8737 0.0120 0.6000 }
+                geometry Box { size 6.2000 0.0120 0.6000 }
               }
             ]
           }
@@ -477,65 +372,11 @@ DEF EAST Solid {
             ]
           }
           Pose {
-            translation 0.0000 -0.0520 0.3000
+            translation 0.0000 -0.0600 0.3000
             children [
               Shape {
-                appearance USE WALL_PANEL_SEAM
+                appearance USE WALL_PANEL
                 geometry Box { size 5.0000 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation -2.0833 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8213 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation -1.2500 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8213 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation -0.4167 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8213 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation 0.4167 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8213 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation 1.2500 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8213 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation 2.0833 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8213 0.0120 0.6000 }
               }
             ]
           }
@@ -678,65 +519,11 @@ DEF WEST Solid {
             ]
           }
           Pose {
-            translation 0.0000 -0.0520 0.3000
+            translation 0.0000 -0.0600 0.3000
             children [
               Shape {
-                appearance USE WALL_PANEL_SEAM
+                appearance USE WALL_PANEL
                 geometry Box { size 5.0000 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation -2.0833 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8213 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation -1.2500 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8213 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation -0.4167 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8213 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation 0.4167 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8213 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation 1.2500 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8213 0.0120 0.6000 }
-              }
-            ]
-          }
-          Pose {
-            translation 2.0833 -0.0600 0.3000
-            children [
-              Shape {
-                appearance USE WALL_PANEL
-                geometry Box { size 0.8213 0.0120 0.6000 }
               }
             ]
           }
@@ -876,9 +663,18 @@ DEF PARTITION Solid {
 DEF DROP_ZONE Pose {
   translation 1.8 -1.65 0.003
   children [
+    # The floor marking is visual only.
     Shape {
-      appearance PBRAppearance { baseColor 0.04 0.55 0.21 roughness 0.65 metalness 0 }
-      geometry Box { size 1.3 1.3 0.006 }
+      appearance PBRAppearance {
+        baseColorMap ImageTexture { url [ "textures/drop-zone.png" ] repeatS FALSE repeatT FALSE filtering 5 }
+        roughness 0.8
+        metalness 0
+      }
+      geometry IndexedFaceSet {
+        coord Coordinate { point [ -0.648 -0.648 0.004, 0.648 -0.648 0.004, 0.648 0.648 0.004, -0.648 0.648 0.004 ] }
+        coordIndex [ 0 1 2 3 -1 ]
+        texCoord TextureCoordinate { point [ 0 0, 1 0, 1 1, 0 1 ] }
+      }
     }
   ]
 }
@@ -887,7 +683,7 @@ DEF ITEM_1 Solid {
   children [
     Shape {
       appearance PBRAppearance { baseColor 0.9 0.05 0.04 roughness 0.85 metalness 0 }
-      geometry Sphere { radius 0.17 }
+      geometry Sphere { radius 0.17 subdivision 3 }
     }
   ]
   boundingObject Sphere { radius 0.17 }
@@ -909,7 +705,7 @@ DEF ITEM_3 Solid {
   children [
     Shape {
       appearance PBRAppearance { baseColor 0.05 0.31 0.94 roughness 0.85 metalness 0 }
-      geometry Cylinder { radius 0.15 height 0.46 }
+      geometry Cylinder { radius 0.15 height 0.46 subdivision 48 }
     }
   ]
   boundingObject Cylinder { radius 0.15 height 0.46 }
@@ -920,7 +716,7 @@ DEF ITEM_4 Solid {
   children [
     Shape {
       appearance PBRAppearance { baseColor 0.05 0.31 0.94 roughness 0.85 metalness 0 }
-      geometry Cylinder { radius 0.15 height 0.46 }
+      geometry Cylinder { radius 0.15 height 0.46 subdivision 48 }
     }
   ]
   boundingObject Cylinder { radius 0.15 height 0.46 }
@@ -931,7 +727,7 @@ DEF ITEM_5 Solid {
   children [
     Shape {
       appearance PBRAppearance { baseColor 0.95 0.65 0.03 roughness 0.85 metalness 0 }
-      geometry Cone { bottomRadius 0.19 height 0.56 }
+      geometry Cone { bottomRadius 0.19 height 0.56 subdivision 48 }
     }
   ]
   boundingObject Cylinder { radius 0.19 height 0.56 }
@@ -953,21 +749,10 @@ DEF ROVER Robot {
   supervisor TRUE
   controller "bridge"
   children [
-    Pose {
-      translation 0 0 0.19
-      children [ Shape {
-      appearance PBRAppearance { baseColor 0.94 0.95 0.97 roughness 0.42 metalness 0 }
-      geometry Box { size 0.42 0.34 0.18 }
-    } ]
-    }
-    Pose {
-      translation 0.10 0 0.284
-      children [
-        Shape {
-          appearance PBRAppearance { baseColor 0.03 0.39 0.95 emissiveColor 0.01 0.08 0.24 roughness 0.4 metalness 0 }
-          geometry Box { size 0.13 0.25 0.008 }
-        }
-      ]
+    DEF ROVER_BODY RoverBody { }
+    DEF SPECTATOR_BODY Transform {
+      scale 1.30 1.24 1.18
+      children [ RoverBody { } ]
     }
     HingeJoint {
       jointParameters HingeJointParameters {
@@ -979,23 +764,15 @@ DEF ROVER Robot {
         translation -0.14 -0.19 0.1
         rotation 1 0 0 1.570796
         children [
-          Shape {
-            appearance PBRAppearance { baseColor 0.06 0.06 0.07 roughness 0.85 metalness 0 }
-            geometry Cylinder { radius 0.1 height 0.05 }
+          DEF ROVER_WHEEL_0 RoverWheel { }
+          DEF SPECTATOR_WHEEL_0 Pose {
+            translation 0 0 0.040
+            children [ RoverWheel { } ]
           }
         ]
         boundingObject Cylinder { radius 0.1 height 0.05 }
         physics Physics { density -1 mass 0.12 }
       }
-    }
-    Pose {
-      translation 0.10 0 0.284
-      children [
-        Shape {
-          appearance PBRAppearance { baseColor 0.03 0.39 0.95 emissiveColor 0.01 0.08 0.24 roughness 0.4 metalness 0 }
-          geometry Box { size 0.13 0.25 0.008 }
-        }
-      ]
     }
     HingeJoint {
       jointParameters HingeJointParameters {
@@ -1007,23 +784,15 @@ DEF ROVER Robot {
         translation 0.14 -0.19 0.1
         rotation 1 0 0 1.570796
         children [
-          Shape {
-            appearance PBRAppearance { baseColor 0.06 0.06 0.07 roughness 0.85 metalness 0 }
-            geometry Cylinder { radius 0.1 height 0.05 }
+          DEF ROVER_WHEEL_1 RoverWheel { }
+          DEF SPECTATOR_WHEEL_1 Pose {
+            translation 0 0 0.040
+            children [ RoverWheel { } ]
           }
         ]
         boundingObject Cylinder { radius 0.1 height 0.05 }
         physics Physics { density -1 mass 0.12 }
       }
-    }
-    Pose {
-      translation 0.10 0 0.284
-      children [
-        Shape {
-          appearance PBRAppearance { baseColor 0.03 0.39 0.95 emissiveColor 0.01 0.08 0.24 roughness 0.4 metalness 0 }
-          geometry Box { size 0.13 0.25 0.008 }
-        }
-      ]
     }
     HingeJoint {
       jointParameters HingeJointParameters {
@@ -1035,23 +804,15 @@ DEF ROVER Robot {
         translation -0.14 0.19 0.1
         rotation 1 0 0 1.570796
         children [
-          Shape {
-            appearance PBRAppearance { baseColor 0.06 0.06 0.07 roughness 0.85 metalness 0 }
-            geometry Cylinder { radius 0.1 height 0.05 }
+          DEF ROVER_WHEEL_2 RoverWheel { }
+          DEF SPECTATOR_WHEEL_2 Pose {
+            translation 0 0 -0.040
+            children [ RoverWheel { } ]
           }
         ]
         boundingObject Cylinder { radius 0.1 height 0.05 }
         physics Physics { density -1 mass 0.12 }
       }
-    }
-    Pose {
-      translation 0.10 0 0.284
-      children [
-        Shape {
-          appearance PBRAppearance { baseColor 0.03 0.39 0.95 emissiveColor 0.01 0.08 0.24 roughness 0.4 metalness 0 }
-          geometry Box { size 0.13 0.25 0.008 }
-        }
-      ]
     }
     HingeJoint {
       jointParameters HingeJointParameters {
@@ -1063,9 +824,10 @@ DEF ROVER Robot {
         translation 0.14 0.19 0.1
         rotation 1 0 0 1.570796
         children [
-          Shape {
-            appearance PBRAppearance { baseColor 0.06 0.06 0.07 roughness 0.85 metalness 0 }
-            geometry Cylinder { radius 0.1 height 0.05 }
+          DEF ROVER_WHEEL_3 RoverWheel { }
+          DEF SPECTATOR_WHEEL_3 Pose {
+            translation 0 0 -0.040
+            children [ RoverWheel { } ]
           }
         ]
         boundingObject Cylinder { radius 0.1 height 0.05 }
@@ -1079,6 +841,7 @@ DEF ROVER Robot {
       width 1280
       height 960
       fieldOfView 1.570796
+      antiAliasing TRUE
     }
   ]
   boundingObject Pose {
@@ -1090,7 +853,7 @@ DEF ROVER Robot {
 
 Robot {
   translation 1.25 -7.45 7.45
-  rotation 0 0 1 1.734445112
+  rotation 0 0 1 1.766
   name "operator arena camera"
   supervisor TRUE
   controller "spectator"
@@ -1098,9 +861,9 @@ Robot {
     DEF ARENA_CAMERA Camera {
       rotation 0 1 0 0.745959927
       name "overhead"
-      width 640
-      height 480
-      fieldOfView 0.91
+      width 1280
+      height 960
+      fieldOfView 0.81
       antiAliasing TRUE
     }
   ]
