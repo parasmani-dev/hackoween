@@ -4,7 +4,7 @@ EXTERNPROTO "../protos/RoverBody.proto"
 EXTERNPROTO "../protos/RoverWheel.proto"
 
 WorldInfo { basicTimeStep 32 coordinateSystem "ENU" }
-Viewpoint { position 0 0 10 }
+DEF WORLD_VIEWPOINT Viewpoint { position 0 0 10 }
 Background { skyColor [ 0.83 0.81 0.77 ] }
 DirectionalLight { direction -0.5 0.4 -1 intensity 1 ambientIntensity 0.65 }
 DEF FLOOR Solid {
@@ -739,7 +739,11 @@ DEF ROVER Robot {
   supervisor TRUE
   controller "bridge"
   children [
-    RoverBody { }
+    DEF ROVER_BODY RoverBody { }
+    DEF SPECTATOR_BODY Transform {
+      scale 1.30 1.24 1.18
+      children [ RoverBody { } ]
+    }
     HingeJoint {
       jointParameters HingeJointParameters {
         axis 0 1 0
@@ -750,7 +754,11 @@ DEF ROVER Robot {
         translation -0.14 -0.19 0.1
         rotation 1 0 0 1.570796
         children [
-          RoverWheel { }
+          DEF ROVER_WHEEL_0 RoverWheel { }
+          DEF SPECTATOR_WHEEL_0 Pose {
+            translation 0 0 0.040
+            children [ RoverWheel { } ]
+          }
         ]
         boundingObject Cylinder { radius 0.1 height 0.05 }
         physics Physics { density -1 mass 0.12 }
@@ -766,7 +774,11 @@ DEF ROVER Robot {
         translation 0.14 -0.19 0.1
         rotation 1 0 0 1.570796
         children [
-          RoverWheel { }
+          DEF ROVER_WHEEL_1 RoverWheel { }
+          DEF SPECTATOR_WHEEL_1 Pose {
+            translation 0 0 0.040
+            children [ RoverWheel { } ]
+          }
         ]
         boundingObject Cylinder { radius 0.1 height 0.05 }
         physics Physics { density -1 mass 0.12 }
@@ -782,7 +794,11 @@ DEF ROVER Robot {
         translation -0.14 0.19 0.1
         rotation 1 0 0 1.570796
         children [
-          RoverWheel { }
+          DEF ROVER_WHEEL_2 RoverWheel { }
+          DEF SPECTATOR_WHEEL_2 Pose {
+            translation 0 0 -0.040
+            children [ RoverWheel { } ]
+          }
         ]
         boundingObject Cylinder { radius 0.1 height 0.05 }
         physics Physics { density -1 mass 0.12 }
@@ -798,7 +814,11 @@ DEF ROVER Robot {
         translation 0.14 0.19 0.1
         rotation 1 0 0 1.570796
         children [
-          RoverWheel { }
+          DEF ROVER_WHEEL_3 RoverWheel { }
+          DEF SPECTATOR_WHEEL_3 Pose {
+            translation 0 0 -0.040
+            children [ RoverWheel { } ]
+          }
         ]
         boundingObject Cylinder { radius 0.1 height 0.05 }
         physics Physics { density -1 mass 0.12 }
