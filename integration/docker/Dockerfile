@@ -16,6 +16,7 @@ ENV PATH="/opt/rover/bin:$PATH" LIBGL_ALWAYS_SOFTWARE=1 PYTHONUNBUFFERED=1
 COPY agent agent
 COPY engine engine
 COPY integration integration
+RUN sed -i 's/\r$//' integration/docker/start.sh
 COPY simulation simulation
 COPY ui ui
 COPY rover_lab rover_lab

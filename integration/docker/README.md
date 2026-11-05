@@ -10,8 +10,12 @@ docker run --rm --name rover-lab -p 127.0.0.1:10000:10000 rover-lab
 
 Open http://localhost:10000 or http://127.0.0.1:10000 and select a scenario.
 Opening Scenario 1 or Jury Demo starts its Webots world. Switching scenarios
-waits for an active run to finish. Stop the container with Ctrl+C.
+while a run is active returns HTTP 409. Wait for the run to finish, then
+open the other scenario again. Stop the container with Ctrl+C.
 These scenarios use scripted actions and need no model credentials.
+
+The repository keeps `integration/docker/start.sh` in LF format, and the build
+also normalizes the copied launcher for existing Windows checkouts using CRLF.
 
 ## Publish on another port
 
