@@ -5,7 +5,7 @@ import os
 from http.client import HTTPException
 
 from .claude import Decision
-from .tools import tool_definitions, validate_action
+from .tools import extract_visual_observation, tool_definitions, validate_action
 from .transport import request
 
 
@@ -41,7 +41,7 @@ class OpenAIClient:
             converted.append({"role": message["role"], "content": parts})
 
         tools = []
-        for definition in tool_definitions(self._available_actions):
+        for definition in tool_definitions(self._available_actions, visual_memory=True):
             definition["parameters"] = definition.pop("input_schema")
             tools.append({"type": "function", "function": definition})
         payload = {
@@ -65,6 +65,7 @@ class OpenAIClient:
                 raise ValueError
             name = call["function"]["name"]
             args = json.loads(call["function"]["arguments"])
+            args, observation = extract_visual_observation(args)
             validate_action(name, args)
             if self._available_actions is not None and name not in self._available_actions:
                 raise ValueError("Unavailable action.")
@@ -79,6 +80,6 @@ class OpenAIClient:
                 "input_tokens": total - cached,
                 "cache_read_input_tokens": cached,
                 "output_tokens": output,
-            })
+            }, observation)
         except (OSError, HTTPException, ValueError, KeyError, TypeError, AttributeError):
             raise OpenAIError("OpenAI did not return a valid rover decision.") from None

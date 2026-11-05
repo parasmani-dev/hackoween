@@ -14,7 +14,7 @@ _ACTIONS = {
 }
 
 
-def tool_definitions(available_actions=None):
+def tool_definitions(available_actions=None, *, visual_memory=False):
     allowed = set(_ACTIONS) if available_actions is None else set(available_actions)
     if not allowed or not allowed <= _ACTIONS.keys():
         raise ValueError("Choose at least one known rover action.")
@@ -25,8 +25,10 @@ def tool_definitions(available_actions=None):
             "strict": True,
             "input_schema": {
                 "type": "object",
-                "properties": {field: {"type": "number", "description": units}} if field else {},
-                "required": [field] if field else [],
+                "properties": {**({field: {"type": "number", "description": units}} if field else {}),
+                    **({"visual_observation": {"type": "string", "description":
+                        "Brief camera observation (under 400 characters): requested target color/shape, image position, whether visible or clipped below frame, and clear route. Update from this image; do not invent unseen objects or coordinates."}} if visual_memory else {})},
+                "required": ([field] if field else []) + (["visual_observation"] if visual_memory else []),
                 "additionalProperties": False,
             },
         }
@@ -50,3 +52,14 @@ def validate_action(name, args):
         raise ValueError("Invalid rover action fields.")
     if field and not finite_number(args[field]):
         raise ValueError("Rover action requires a finite number.")
+
+
+def extract_visual_observation(args):
+    """Separate model-authored memory from the unchanged engine action payload."""
+    if not isinstance(args, dict):
+        raise ValueError("Invalid action fields.")
+    args = dict(args)
+    observation = args.pop("visual_observation", "")
+    if not isinstance(observation, str) or len(observation) > 1000:
+        raise ValueError("Invalid visual observation.")
+    return args, observation[:400]

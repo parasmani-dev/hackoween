@@ -38,7 +38,7 @@ Use `-EnvFile C:/path/to/.env` for an environment file outside this checkout.
 The Haiku client pins `claude-haiku-4-5-20251001` without changing `CLAUDE_MODEL`
 or the OpenAI path. Only the dashboard process receives the Claude credential.
 Enabling the launcher makes no API calls. On Scenario 1 select live mode,
-enter a command and a decision cap (1–60, default 25), then press Start Haiku fetch.
+enter a command and a decision cap (1–60, default 50), then press Start Haiku fetch.
 The server owns Start, agent execution and Finish. Reset and overlapping starts
 are blocked during a run. The page shows the latest five actions and final verdict.
 Live model requests, JSONL/PNG artifacts and private capture metadata are saved
@@ -106,3 +106,18 @@ still require camera-based route selection. A carried object occludes the ray,
 so depth is unavailable while holding; camera navigation remains in use. Real
 collision physics and the private evaluator are unchanged. No collision-free
 live success is implied by an offline pass.
+
+
+### Visual continuity and call budget
+
+Both provider clients ask for a short camera observation alongside each action.
+The runner carries the latest observation to the next decision as uncertain,
+model-authored memory. It never supplies target coordinates or evaluator identity.
+The note is stripped before dispatch: engine actions retain their original payloads.
+A confirmed pickup replaces the acquisition note with the delivery objective.
+This helps preserve target identity when a near object clips below the camera;
+it does not guarantee recognition or a successful pickup.
+
+The UI defaults to 50 decisions. Each decision makes one provider request with
+no automatic transport retries; rejected proposals also consume a decision.
+This is a per-run call cap, not a change to the API account balance.

@@ -35,6 +35,14 @@ SYSTEM_PROMPT = (
     "depth is at most 0.08 m, try pickup BEFORE any further forward movement. "
     "If the target is already visible, use the direct small alignment correction, not a "
     "45-degree search turn that overshoots it. "
+    "TARGET CONTINUITY: write a concise visual_observation with each action. The prior note "
+    "is your own uncertain observation, not simulator truth. Keep tracking the SAME requested "
+    "color and shape across images. If forward approach makes the target disappear BELOW "
+    "the camera, it is probably close beneath the view: do not start a search or turn away. "
+    "Use your previous alignment, depth and small safe forward corrections, then pickup. "
+    "A failed pickup does not mean the target was misidentified or disappeared. Only abandon "
+    "the approach when the new image actually contradicts the match or shows an obstacle. "
+    "Do not spend calls centering a target already within the pickup heading tolerance. "
     "ALIGNMENT: image left means a negative turn, right a positive turn. For the 640-pixel, "
     "90-degree horizontal field of view, x=160 corresponds to about -27 degrees, x=240 to -14, "
     "x=320 to zero, x=400 to +14 and x=480 to +27. If the target is off-center, make a small "
@@ -199,6 +207,7 @@ def run_command(
     rejected_turns = 0
     turns_without_progress = 0
     failed_manipulations = {}
+    visual_memory = ""
 
     try:
         with (run_dir / "steps.jsonl").open("x", encoding="utf-8") as journal:
@@ -225,6 +234,7 @@ def run_command(
                     "state": state,
                     "remaining_decisions": max_decisions - step + 1,
                     "recent_actions": list(history),
+                    "previous_visual_observation": visual_memory,
                     **({"depth": depth, "max_forward_distance": max_forward} if depth is not None else {}),
                 }, separators=(",", ":"))
                 decisions = step
@@ -267,6 +277,8 @@ def run_command(
                     log_decision(step, datetime.now(timezone.utc).isoformat(), None, {},
                                  {"outcome": "not_dispatched", "reason": "provider_error"}, frame_name)
                     raise
+                if decision.observation:
+                    visual_memory = decision.observation
                 for key, count in decision.usage.items():
                     usage[key] = usage.get(key, 0) + count
 
@@ -306,6 +318,8 @@ def run_command(
                     not result["success"] or result.get("in_zone") is False
                 ):
                     failed_manipulations[decision.name] = _pose(state)
+                if decision.name == "pickup" and result["success"]:
+                    visual_memory = "Pickup confirmed by action result. Track the requested drop zone now."
                 history.append(action)
                 if decision.name == "turn":
                     turns_without_progress += 1

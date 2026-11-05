@@ -48,6 +48,25 @@ class RunnerTests(unittest.TestCase):
         self.engine.execute.assert_called_once_with('move', {'distance': 0.05})
         self.assertEqual(self.records(result)[0]['result'], {'success': True})
 
+    def test_visual_memory_survives_failed_pickup_and_clears_on_success(self):
+        self.claude.decide.side_effect = [
+            Decision('pickup', {}, {}, 'Red sphere centered, lower edge clipped.'),
+            Decision('move', {'distance': 0.03}, {}),
+            Decision('pickup', {}, {}), Decision('turn', {'degrees': 20}, {})]
+        self.engine.execute.side_effect = [{'success': False}, {'success': True},
+                                           {'success': True}, {'success': True}]
+        self.engine.state.side_effect = [state(), state(), {**state(), 'x': .03},
+                                         {**state('Carry'), 'holding': True}, state()]
+        self.run_rover(max_decisions=4)
+        contexts = [json.loads(call.args[0][0]['content'][0]['text'])
+                    for call in self.claude.decide.call_args_list]
+        self.assertEqual(contexts[1]['previous_visual_observation'],
+                         'Red sphere centered, lower edge clipped.')
+        self.assertEqual(contexts[2]['previous_visual_observation'],
+                         contexts[1]['previous_visual_observation'])
+        self.assertIn('drop zone', contexts[3]['previous_visual_observation'])
+        self.engine.execute.assert_any_call('pickup', {})
+
     def setUp(self):
         self.temp = TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -314,7 +333,7 @@ class RunnerTests(unittest.TestCase):
                         encoded = blocks[1]["image_url"]["url"].split(",", 1)[1]
                         names = {tool["function"]["name"] for tool in payload["tools"]}
                     context = json.loads(blocks[0]["text"])
-                    self.assertEqual(set(context), {"command", "state", "remaining_decisions", "recent_actions"})
+                    self.assertEqual(set(context), {"command", "state", "remaining_decisions", "recent_actions", "previous_visual_observation"})
                     self.assertEqual(context["command"], command)
                     self.assertEqual(set(context["state"]), {"state", "x", "y", "heading", "holding", "retry_count"})
                     self.assertEqual(names, {"move", "turn", "pickup", "drop"})
