@@ -131,3 +131,20 @@ zero contacts; report runs/approach-priority-replay-verified/report.json. Intent
 wall collision test preserves failed pickup trial then retreats, clears Blocked,
 zero recovery contacts/stalls; runs/recovery-priority-offline/report.json.
 No provider calls in these checks. User authorizes one remaining 40-call validation.
+
+## Remaining 40-call live validation of recovery priority
+
+Attempt `attempt-bnmhpw4d` on d58bb26 used exactly 40 requests and ended
+`decision_limit` / `fail_not_reached`. Successful pickup at 23, out-of-zone drop at
+29, reacquired at 36, then searching at limit. Zero recorded contacts, zero failed
+turns, zero rejected proposals. All 40 submitted images match saved PNGs; checked
+private metadata absent; POV complete. Usage: 168081 input / 5718 output tokens.
+The approach/recovery conflict did not recur, but collision recovery itself was
+not triggered in this contact-free run (verified separately offline).
+
+Delivery acceptance remains FAILED: inaccurate floor-zone localization and early
+drop, plus confusing holding-state descriptions after release. Model reported
+holding while actual public holding was false, causing ineffective additional
+drop proposals at 32/35 before reacquisition. Current recovery fix is not a claim
+of reliable full-task autonomy. All remaining 40 authorized calls are consumed;
+no further paid retry started.
