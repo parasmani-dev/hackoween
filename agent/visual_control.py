@@ -8,7 +8,7 @@ import math
 from dataclasses import replace
 
 
-def correct_action(decision, *, holding, depth, disabled=()):
+def correct_action(decision, *, holding, depth, disabled=(), history=()):
     view = decision.target_view
     if view is None:  # Existing injected policies remain compatible.
         return decision, None
@@ -26,17 +26,28 @@ def correct_action(decision, *, holding, depth, disabled=()):
             return use('turn', {'degrees': 45}, 'search_for_visible_floor_zone')
         return decision, None
     if box is None:
+        previous_turn = next((a['args']['degrees'] for a in reversed(history)
+                              if a['tool'] == 'turn' and a['result'].get('success')), 45)
+        search_turn = 45 if previous_turn >= 0 else -45
+        if forward and (depth is None or depth > .6):
+            return use('turn', {'degrees': search_turn}, 'reacquire_target_before_blind_drive')
+        if decision.name == 'turn' and decision.args['degrees'] * search_turn < 0:
+            return use('turn', {'degrees': search_turn}, 'consistent_target_search')
         return decision, None
     center = (box[0] + box[2]) / 2
     bearing = math.degrees(math.atan((center - 320) / 320))
     # Pickup tolerates 30 degrees. Near-field boxes are clipped and their
     # midpoint is less reliable; never demand driving alignment before grasp.
     if (not holding and box[3] >= 475 and depth is not None and depth <= .08
-            and abs(bearing) <= 30 and (forward or decision.name == 'pickup')):
+            and abs(bearing) <= 30 and (forward or decision.name in ('pickup', 'turn'))):
         return use('pickup', {}, 'near_target_pickup_before_contact')
     if abs(bearing) > 10 and (forward or reaching):
         return use('turn', {'degrees': round(max(-25, min(25, bearing)), 2)},
                    'align_to_reported_target')
+    if (view['path_clear'] and decision.name == 'turn' and abs(bearing) > 10
+            and decision.args['degrees'] * bearing < 0):
+        return use('turn', {'degrees': round(max(-25, min(25, bearing)), 2)},
+                   'turn_toward_visible_target')
     if not view['path_clear']:
         if forward:
             return use('turn', {'degrees': 25 if center < 320 else -25},

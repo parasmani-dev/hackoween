@@ -60,3 +60,21 @@ Exact saved AI proposal/perception replay in Webots now reaches pickup at decisi
 and does not test delivery. Combined requests so far: one aborted schema request
 plus 17 continuation decisions = 18. Further live validation awaits permission to
 use the remaining 32 calls as an additional run.
+
+## Final 32-call validation
+
+User authorized the remaining 32 requests. Attempt `attempt-i8lkya2l` on 2ffc33b
+used all 32 and ended `fail_not_reached` / `decision_limit`: no successful pickup,
+no delivery, no reported move contact or failed turn. All 32 submitted frames
+matched saved PNGs, checked private metadata absent, POV complete. Usage:
+136611 input / 4591 output tokens. Total phase requests: 1 + 17 + 32 = 50.
+No additional live calls are authorized or made.
+
+Further observed failures: AI sometimes reports inaccurate bounds or absent target;
+step 28 reported a right-side target but proposed a left turn, and absent-target
+forward moves/alternating scans continued. Offline follow-up now corrects turns
+away from a visible target when the reported path is clear, requires reacquisition
+before blind forward travel with distant/absent depth, and keeps absent-target
+search direction consistent. Added exact regressions; 89 tests pass. These fixes
+have NOT had another live run. Perception accuracy and delivery remain open;
+this is not a successful or perfect autonomous build.

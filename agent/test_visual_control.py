@@ -46,6 +46,22 @@ class VisualControlTests(unittest.TestCase):
                                    holding=False,depth=.064)
             self.assertEqual(actual.name,'pickup')
 
+    def test_right_target_cannot_trigger_left_alignment_turn(self):
+        actual,reason=correct_action(self.proposal('turn',{'degrees':-30},[520,380,640,480]),
+                                    holding=False,depth=3)
+        self.assertGreater(actual.args['degrees'],0)
+        self.assertEqual(reason,'turn_toward_visible_target')
+
+    def test_missing_target_with_distant_range_requires_reacquisition(self):
+        actual,_=correct_action(self.proposal('move',{'distance':.2}),holding=False,depth=3)
+        self.assertEqual(actual.name,'turn')
+
+    def test_search_does_not_immediately_reverse_direction(self):
+        history=[{'tool':'turn','args':{'degrees':45},'result':{'success':True}}]
+        actual,_=correct_action(self.proposal('turn',{'degrees':-45}),holding=False,
+                               depth=3,history=history)
+        self.assertEqual(actual.args,{'degrees':45})
+
     def test_disabled_pickup_cannot_be_reintroduced(self):
         actual,_=correct_action(self.proposal('move',{'distance':.01},[220,300,420,480]),
                                holding=False,depth=.06,disabled=['pickup'])

@@ -309,7 +309,7 @@ def run_command(
 
                 proposed = decision
                 decision, correction = correct_action(decision, holding=state['holding'],
-                                                       depth=depth, disabled=disabled)
+                                                       depth=depth, disabled=disabled, history=history)
                 if proposed.target_view is not None:
                     decision_report = {'proposal': {'tool': proposed.name, 'args': proposed.args},
                                        'target_view': proposed.target_view,
