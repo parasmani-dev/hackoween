@@ -15,7 +15,7 @@
     <section class="card watch-state"><span class="kicker">Arena status</span><div role="status" aria-atomic="true"><h2 id="status">Connecting…</h2><p class="muted" id="status-detail"></p></div></section>
     <div class="feeds" id="live-views" hidden>
       <section class="card"><div class="panel-head"><h2>Rover camera</h2><span class="tag camera-tag">Rover POV</span></div><img class="frame" id="front" alt="Rover’s front camera"><p class="feed-note" id="front-state">Connecting…</p></section>
-      <section class="card"><div class="panel-head"><h2>Spectator view</h2><span class="tag camera-tag">Observer only</span></div><img class="frame" id="spectator" alt="High-angle view of the arena"><p class="feed-note" id="spectator-state">Connecting…</p></section>
+      <section class="card spectator-panel" id="spectator-panel"><div class="panel-head"><h2>Spectator view</h2><button type="button" data-expand-view aria-pressed="false" aria-controls="spectator-panel">Expand view</button><span class="tag camera-tag">Observer only</span></div><img class="frame" id="spectator" alt="High-angle view of the arena"><p class="feed-note" id="spectator-state">Connecting…</p></section>
     </div>
     <section class="card" id="recorded">
       <div class="panel-head"><h2 id="recorded-title">Corner preview</h2><button id="play" type="button" hidden>Play replay</button></div>

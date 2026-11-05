@@ -37,8 +37,8 @@
         <img id="camera" class="frame" width="640" height="480" alt="Live front-camera feed" hidden>
         <p id="camera-note" class="feed-note"></p>
       </section>
-      <section class="card">
-        <div class="panel-head"><h2>Spectator view</h2><span class="tag camera-tag">Observer only</span></div>
+      <section class="card spectator-panel" id="spectator-panel">
+        <div class="panel-head"><h2>Spectator view</h2><button type="button" data-expand-view aria-pressed="false" aria-controls="spectator-panel">Expand view</button><span class="tag camera-tag">Observer only</span></div>
         <img class="frame" id="spectator" alt="Live high-angle Webots view">
         <p class="feed-note" id="spectator-state">Connecting…</p>
       </section>

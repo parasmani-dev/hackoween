@@ -50,3 +50,12 @@ function showFrame(id, path, noteId, label = '', empty = '') {
   if (path) image.src = path;
   else image.removeAttribute('src');
 }
+
+document.querySelectorAll('[data-expand-view]').forEach(button => {
+  button.addEventListener('click', () => {
+    const feeds = button.closest('.feeds');
+    const expanded = feeds.classList.toggle('spectator-expanded');
+    button.setAttribute('aria-pressed', String(expanded));
+    button.textContent = expanded ? 'Side-by-side' : 'Expand view';
+  });
+});

@@ -48,6 +48,8 @@ p{line-height:1.55}
 .story h2,.page-intro h1{font-size:clamp(2.2rem,5vw,4rem);margin:.58rem 0 .68rem}
 .story .lede,.page-intro p{max-width:65ch;margin-bottom:1.2rem}
 .story-grid,.feeds,.replay,.metrics{display:grid;gap:1rem;grid-template-columns:repeat(2,minmax(0,1fr))}
+.feeds.spectator-expanded{grid-template-columns:minmax(0,1fr)}
+.feeds.spectator-expanded>.spectator-panel{order:-1}
 .story-grid.three,.metrics{grid-template-columns:repeat(3,minmax(0,1fr))}
 .card{background:var(--panel);border:1px solid var(--edge);border-radius:var(--radius);padding:1rem;min-width:0}
 .story-grid h3{margin:.55rem 0}
