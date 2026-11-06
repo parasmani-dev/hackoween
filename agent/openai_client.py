@@ -4,7 +4,9 @@ import json
 import os
 from http.client import HTTPException
 
-from .claude import Decision
+from .claude import Decision, _allowed_tool_names
+from .config import load_provider_environment
+from .observations import OBSERVATION_INSTRUCTION, extract_observation
 from .tools import tool_definitions, validate_action
 from .transport import request
 
@@ -15,14 +17,16 @@ class OpenAIError(RuntimeError):
 
 class OpenAIClient:
     def __init__(self, *, audit_request=None):
+        load_provider_environment("openai")
         self._api_key = os.environ.get("OPENAI_API_KEY")
         self.model = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
         if not self._api_key or not self.model:
             raise OpenAIError("Set OPENAI_API_KEY and select a valid OPENAI_MODEL.")
         self._audit_request = audit_request
 
-    def decide(self, messages, *, system):
-        converted = [{"role": "system", "content": system}]
+    def decide(self, messages, *, system, allowed_tools=None):
+        allowed_names = _allowed_tool_names(allowed_tools)
+        converted = [{"role": "system", "content": system + OBSERVATION_INSTRUCTION}]
         for message in messages:
             parts = []
             for block in message["content"]:
@@ -36,6 +40,8 @@ class OpenAIClient:
 
         tools = []
         for definition in tool_definitions():
+            if definition["name"] not in allowed_names:
+                continue
             definition["parameters"] = definition.pop("input_schema")
             tools.append({"type": "function", "function": definition})
         payload = {
@@ -60,6 +66,8 @@ class OpenAIClient:
             name = call["function"]["name"]
             args = json.loads(call["function"]["arguments"])
             validate_action(name, args)
+            if name not in allowed_names:
+                raise ValueError
             raw_usage = response["usage"]
             cached = (raw_usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
             total, output = raw_usage["prompt_tokens"], raw_usage["completion_tokens"]
@@ -67,10 +75,20 @@ class OpenAIClient:
                 raise ValueError
             if cached > total:
                 raise ValueError
+            content = choice["message"].get("content")
+            if isinstance(content, str):
+                text_blocks = [content]
+            elif isinstance(content, list):
+                text_blocks = [block["text"] for block in content
+                               if isinstance(block, dict) and block.get("type") == "text"
+                               and isinstance(block.get("text"), str)]
+            else:
+                text_blocks = []
+            observation = extract_observation(text_blocks)
             return Decision(name, args, {
                 "input_tokens": total - cached,
                 "cache_read_input_tokens": cached,
                 "output_tokens": output,
-            })
+            }, observation=observation)
         except (OSError, HTTPException, ValueError, KeyError, TypeError, AttributeError):
             raise OpenAIError("OpenAI did not return a valid rover decision.") from None

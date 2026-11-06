@@ -5,6 +5,12 @@
 <title>Jury Demo · Rover Lab</title>
 <link rel="stylesheet" href="/assets/theme.css">
 <meta name="jury-token" content="JURY_TOKEN">
+<style>
+  .live-fields{display:grid;grid-template-columns:minmax(9rem,.4fr) minmax(0,1fr);gap:.65rem;align-items:center;margin:.8rem 0}
+  .live-fields>p,.live-fields>label:last-child{grid-column:1/-1}
+  #custom-cap{font:inherit;color:var(--ink);background:var(--panel-raised);border:1px solid var(--edge);border-radius:9px;padding:.7rem;width:100%}
+  @media(max-width:540px){.live-fields{grid-template-columns:1fr}}
+</style>
 <!-- SITE NAV -->
 <main class="wrap">
   <div class="page-intro">
@@ -14,22 +20,33 @@
       <a class="button" href="/scenario-1">Scenario 1</a>
       <a class="button" href="/jury" aria-current="page">Scenario 2</a>
     </nav>
-    <p class="muted">Offline scripted rehearsal · Webots physics · Zero model calls</p>
+    <p class="muted" id="mode-banner">Offline scripted rehearsal · Webots physics · Zero model calls</p>
   </div>
   <div class="console">
   <section class="card controls" aria-label="Run controls">
   <div class="segmented" role="group" aria-label="Mode">
     <button id="judge-mode" type="button" aria-pressed="true">Judge demo</button>
-    <button id="custom-mode" type="button" aria-pressed="false">Custom command</button>
+    <button id="custom-mode" type="button" aria-pressed="false">Custom command · Live</button>
   </div>
   <p id="fixed-command">Fetch the blue cylinder beside the yellow cone and drop it in the green zone</p>
   <form id="custom-form" hidden>
     <label for="command">Fetch command</label>
-    <textarea id="command" rows="2" maxlength="300" required placeholder="Type a fetch command"></textarea>
-    <p>Offline examples</p>
+    <textarea id="command" rows="2" maxlength="500" required placeholder="Type your own fetch command; include a colour if multiple cubes are visible"></textarea>
+    <p class="muted">If several cubes are visible, include a colour to identify the one you mean.</p>
+    <div class="live-fields">
+      <label for="custom-provider">Provider</label><select id="custom-provider"><option value="claude">Claude</option><option value="openai">OpenAI</option></select>
+      <label for="custom-cap">Decision cap</label><input id="custom-cap" type="number" min="1" max="60" step="1" value="60" required>
+      <label for="custom-target">Scoring target · operator only</label>
+      <select id="custom-target"><option value="">Unscored custom command</option><option value="item_1">Red sphere</option><option value="item_2">Red cube</option><option value="item_3">Blue cylinder 1</option><option value="item_4">Blue cylinder 2</option><option value="item_5">Yellow cone</option><option value="item_6">Purple cube</option></select>
+      <p class="warning">Live Start sends the rover camera to the selected provider and spends API credits. The agent may fail to complete the command.</p>
+      <p class="muted">Claude/OpenAI navigation + local approach control. Local approach steps and pickup checks use no new model call; all actions count toward the decision cap.</p>
+      <label><input id="custom-paid" type="checkbox" required>I want to use API credits for this run</label>
+    </div>
+    <p>Example commands · executed live</p>
     <button id="example-cone" type="button">Cylinder beside yellow cone</button>
     <button id="example-cube" type="button">Cylinder beside red cube</button>
-    <button class="primary" id="run-custom" type="submit">Run command</button>
+    <button class="primary" id="run-custom" type="submit">Start live agent</button>
+    <p id="custom-usage" class="muted" role="status"></p>
   </form>
   <div class="actions"><label>Layout <select id="layout">
     <option value="A">A · Corner reveal</option><option value="B">B · Judge swap</option>
@@ -42,7 +59,7 @@
   </section>
   <div class="metrics">
     <aside class="card">Correct object delivered<br><strong id="verdict">—</strong></aside>
-    <aside class="card">Decisions used<br><strong id="count">—</strong></aside>
+    <aside class="card">Total decisions<br><strong id="count">—</strong></aside>
     <aside class="card">Collisions<br><strong id="contacts">—</strong></aside>
   </div>
   <div id="events" class="event-list" aria-label="Run events" aria-live="polite" hidden></div>
@@ -76,21 +93,25 @@
 <script>
 const byId = id => document.getElementById(id);
 const verdicts = {pass: 'Yes', fail_wrong_object: 'No · wrong object', fail_not_reached: 'No · no delivery',
-                  fail_collision: 'No · recovery exhausted', operator_error: 'Unavailable · operator error'};
+                  fail_collision: 'No · recovery exhausted', operator_error: 'Unavailable · operator error', unscored:'Unscored', unknown:'Unknown', not_started:'Not started'};
 let current, replayId, selectedStep, pinnedRun, requestPending = false;
 let displayedSignature = '';
 let eventsSignature;
 let decisionView = false;
 let followLatest = true;
 let mode = 'judge';
+let liveSnapshot;
+const replaySources = new Map();
+const replayPrefix = run => (replaySources.get(run) || '/replay/') + run;
 const juryToken = document.querySelector('meta[name=jury-token]').content;
 const juryHeaders = {'X-Jury-Token': juryToken};
 const juryFrame = path => path + '?jury=' + encodeURIComponent(juryToken);
 const controls = ['judge-mode', 'custom-mode', 'layout', 'swap', 'start', 'reset', 'collision',
-                  'command', 'run-custom', 'example-cone', 'example-cube'];
+                  'command', 'run-custom', 'example-cone', 'example-cube', 'custom-provider', 'custom-cap', 'custom-target', 'custom-paid'];
 function updateControls() {
-  for (const id of controls) byId(id).disabled = requestPending || !current || current.running;
+  for (const id of controls) byId(id).disabled = requestPending || !current || current.anyRunning;
   byId('collision').disabled ||= current?.layout !== 'A';
+  byId('run-custom').disabled ||= !byId('custom-paid').checked;
 }
 async function post(path, body) {
   if (requestPending) return;
@@ -108,6 +129,7 @@ async function post(path, body) {
   finally { requestPending = false; updateControls(); }
 }
 function updateMode(nextMode) {
+  if (current?.anyRunning || requestPending) return;
   mode = nextMode;
   const custom = mode === 'custom';
   byId('judge-mode').setAttribute('aria-pressed', String(!custom));
@@ -115,6 +137,10 @@ function updateMode(nextMode) {
   byId('custom-form').hidden = !custom;
   for (const id of ['fixed-command', 'swap', 'start', 'collision']) byId(id).hidden = custom;
   byId('feedback').textContent = '';
+  byId('mode-banner').textContent = custom ? 'Claude/OpenAI navigation + local approach control · API credits for model calls' : 'Offline scripted rehearsal · Webots physics · Zero model calls';
+  pinnedRun = null;
+  displayedSignature = '';
+  refresh();
 }
 byId('judge-mode').onclick = () => updateMode('judge');
 byId('custom-mode').onclick = () => updateMode('custom');
@@ -127,11 +153,18 @@ byId('example-cube').onclick = () => {
 byId('custom-form').onsubmit = event => {
   event.preventDefault();
   const command = byId('command').value.trim();
-  if (command) post('/start', {command});
+  const cap = Number(byId('custom-cap').value);
+  if (!command || !Number.isInteger(cap) || cap < 1 || cap > 60) {
+    byId('feedback').textContent = 'Enter a command and a whole-number decision cap from 1 to 60.';
+    return;
+  }
+  if (command) post('/scenario-2/live/start', {command, provider:byId('custom-provider').value,
+    max_decisions:cap, expected_fixture_key:byId('custom-target').value || null, confirm_paid:byId('custom-paid').checked});
 };
+byId('custom-paid').onchange = updateControls;
 byId('layout').onchange = () => post('/select', {layout: byId('layout').value});
 byId('swap').onclick = () => post('/select', {layout: 'B'});
-byId('reset').onclick = () => post('/select', {layout: current.layout});
+byId('reset').onclick = () => post(mode === 'custom' ? '/scenario-2/live/reset' : '/select', mode === 'custom' ? {} : {layout: current.layout});
 byId('start').onclick = () => post('/start', {});
 byId('collision').onclick = () => post('/start', {probe: 'collision'});
 function updateDecisionView() {
@@ -142,7 +175,7 @@ function updateDecisionView() {
   button.setAttribute('aria-pressed', String(decisionView));
   byId('front-live').hidden = decisionView;
   byId('front-decision').hidden = !decisionView;
-  if (decisionView) showFrame('latest-frame', juryFrame(`/replay/${current.run_id}/${latest.frame_path}`),
+  if (decisionView) showFrame('latest-frame', juryFrame(`${replayPrefix(current.run_id)}/${latest.frame_path}`),
     'latest-frame-state', `Exact image for decision ${latest.step}`);
 }
 byId('decision-view').onclick = () => { decisionView = !decisionView; updateDecisionView(); };
@@ -175,7 +208,7 @@ function showDecision(run, row) {
   selectedStep = row?.step;
   for (const button of byId('steps').children) button.setAttribute('aria-pressed', String(Number(button.dataset.step) === selectedStep));
   byId('decision').textContent = row ? `Exact frame for decision ${row.step}` : 'Exact decision frame';
-  const prefix = `/replay/${run}/`;
+  const prefix = replayPrefix(run) + '/';
   showFrame('before', row?.frame_path && juryFrame(prefix + row.frame_path), 'before-note', '', row ? 'Decision frame unavailable.' : '');
   showFrame('after', row?.after && juryFrame(prefix + row.after), 'after-note', '', row ? 'No fresh post-action frame recorded.' : '');
   byId('action').textContent = row ? actionSummary(row) : '';
@@ -209,7 +242,7 @@ function renderReplay(run, rows) {
 }
 async function loadReplay(run) {
   if (!run) return;
-  const response = await fetch('/replay/' + run, {headers: juryHeaders});
+  const response = await fetch(replayPrefix(run), {headers: juryHeaders});
   if (response.ok) renderReplay(run, await response.json());
 }
 let reportSignature;
@@ -236,18 +269,31 @@ function renderReport(report) {
 }
 async function refresh() {
   try {
-    const response = await fetch('/status', {headers: juryHeaders, signal: AbortSignal.timeout(2500)});
-    if (!response.ok) throw Error();
-    current = await response.json();
+    const [response, liveResponse] = await Promise.all([
+      fetch('/status', {headers: juryHeaders, signal: AbortSignal.timeout(4500)}),
+      fetch('/scenario-2/live/status', {headers: juryHeaders, signal: AbortSignal.timeout(4500)})
+    ]);
+    if (!response.ok || !liveResponse.ok) throw Error();
+    const scripted = await response.json();
+    liveSnapshot = await liveResponse.json();
+    if (liveSnapshot.run_id) replaySources.set(liveSnapshot.run_id, '/scenario-2/live/replay/');
+    current = mode === 'custom' ? {...scripted, running:liveSnapshot.running, rows:liveSnapshot.rows || [],
+      run_id:liveSnapshot.run_id, latest:liveSnapshot.run_id, decisions:liveSnapshot.decisions,
+      result:liveSnapshot.result ? {...liveSnapshot.result, stop:liveSnapshot.result.agent_status,
+        run_id:liveSnapshot.run_id, collisions:liveSnapshot.collisions, custom:true} : null} : scripted;
+    current.anyRunning = scripted.running || liveSnapshot.running;
     byId('layout').value = current.layout;
     const result = current.result;
-    byId('status').textContent = current.running ? 'Scripted fetch running' :
+    byId('status').textContent = current.running ? (mode === 'custom' ? 'Model navigation + local approach control running' : 'Scripted fetch running') :
       result ? `Run ended · ${result.run_id || result.stop || ''}${result.custom ? ' · ' + result.command : ''}` : 'Ready for a run';
     byId('verdict').textContent = current.running ? 'Pending' : verdicts[result?.verdict] || '—';
     byId('verdict').dataset.positive = String(result?.verdict === 'pass');
-    byId('count').textContent = result?.decisions ?? (current.running ? current.rows.length : '—');
+    byId('count').textContent = result?.decisions ?? (current.running ? (current.decisions ?? current.rows.length) : '—');
     byId('contacts').textContent = result?.collisions ??
       (current.running ? current.rows.filter(row => row.event === 'Collision').length : '—');
+    const sourceCounts = `Model calls: ${liveSnapshot.model_requests ?? 0} · Local control steps: ${liveSnapshot.local_control_steps ?? 0}`;
+    byId('custom-usage').textContent = liveSnapshot.result ?
+      `${sourceCounts} · ${liveSnapshot.result.provider} / ${liveSnapshot.result.model} · Stop: ${liveSnapshot.result.agent_status} · Tokens in/out: ${liveSnapshot.result.usage?.input_tokens ?? 0}/${liveSnapshot.result.usage?.output_tokens ?? 0}${liveSnapshot.result.error ? ' · ' + liveSnapshot.result.error : ''}` : sourceCounts;
     showEvents(current.rows);
     updateDecisionView();
     if (!pinnedRun) {

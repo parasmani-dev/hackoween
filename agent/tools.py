@@ -3,6 +3,9 @@
 import math
 
 
+MOTION_LIMITS = {"move": 10, "turn": 360}
+
+
 _ACTIONS = {
     "move": ("Drive forward or reverse.", "distance", "Signed distance in metres."),
     "turn": ("Rotate in place.", "degrees", "Degrees, positive clockwise."),
@@ -19,7 +22,10 @@ def tool_definitions():
             "strict": True,
             "input_schema": {
                 "type": "object",
-                "properties": {field: {"type": "number", "description": units}} if field else {},
+                "properties": {field: {
+                    "type": "number", "description": units,
+                    "minimum": -MOTION_LIMITS[name], "maximum": MOTION_LIMITS[name],
+                }} if field else {},
                 "required": [field] if field else [],
                 "additionalProperties": False,
             },
@@ -43,3 +49,5 @@ def validate_action(name, args):
         raise ValueError("Invalid rover action fields.")
     if field and not finite_number(args[field]):
         raise ValueError("Rover action requires a finite number.")
+    if field and abs(args[field]) > MOTION_LIMITS[name]:
+        raise ValueError("Rover action exceeds the supported motion range.")

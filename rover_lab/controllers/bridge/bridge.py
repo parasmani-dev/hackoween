@@ -214,8 +214,9 @@ class Scene:
     def carry(self):
         x, y, _ = self.drive.node.getPosition()
         heading = self.drive.heading()
+        # Leave room for a cube's diagonal so the held body cannot hit the rover.
         self.held.getField("translation").setSFVec3f([
-            x + 0.52 * math.cos(heading), y + 0.52 * math.sin(heading), self.carry_height
+            x + 0.60 * math.cos(heading), y + 0.60 * math.sin(heading), self.carry_height
         ])
         self.held.resetPhysics()
 
