@@ -21,6 +21,7 @@ sys.path.insert(0, str(REPO))
 from agent.claude import Decision
 from agent.engine import EngineClient
 from agent.runner import run_command
+from rover_lab.live_operator import LiveConflict, LiveOperator, LiveRequestError
 
 COMMAND = "Fetch the blue cylinder beside the yellow cone and drop it in the green zone"
 RED_CUBE_COMMAND = COMMAND.replace("yellow cone", "red cube")
@@ -32,6 +33,7 @@ SITE = ROOT / "site"
 ASSETS = {
     "theme.css": "text/css; charset=utf-8", "feeds.js": "text/javascript; charset=utf-8",
     "watch.js": "text/javascript; charset=utf-8", "arena.jpg": "image/jpeg",
+    "scenario-one.js": "text/javascript; charset=utf-8",
     "before.png": "image/png", "after.png": "image/png",
     "Geist-Variable.woff2": "font/woff2", "GeistMono-Variable.woff2": "font/woff2",
 }
@@ -260,6 +262,10 @@ class Demo:
 
 def serve(port, engine_port):
     demo = Demo(f"http://127.0.0.1:{engine_port}")
+    legacy_port = urlsplit(SCENARIO_ONE_ORIGIN).port
+    live_engine_port = int(os.environ.get("ROVER_LAB_SCENARIO_ONE_ENGINE_PORT", 18836 + legacy_port - 8112))
+    live = LiveOperator(f"http://127.0.0.1:{live_engine_port}", RUN_DIR / "scenario-1-live")
+    live2 = LiveOperator(demo.engine_url, RUN_DIR / "scenario-2-live")
     jury_token = secrets.token_urlsafe(32)
 
     class Handler(BaseHTTPRequestHandler):
@@ -287,16 +293,24 @@ def serve(port, engine_port):
             env = "ROVER_PREVIEW_FILE" if name == "front" else "ROVER_SPECTATOR_FILE"
             try:
                 path = Path(os.environ[env])
-                if name == "front":
-                    heartbeat = json.loads(Path(str(path) + ".json").read_text())
-                    if not heartbeat["ready"] or time.time() - heartbeat["heartbeat_ms"] / 1000 > 3:
-                        return self.reply({}, status=503)
-                age = time.time() - path.stat().st_mtime
+                # Physics deliberately freezes while the model thinks. Both
+                # images can remain unchanged while the bridge is still alive.
+                # Validate that producer heartbeat, rather than image age alone.
+                preview_path = Path(os.environ["ROVER_PREVIEW_FILE"])
+                heartbeat = json.loads(Path(str(preview_path) + ".json").read_text())
+                stamp = heartbeat.get("heartbeat_ms") if isinstance(heartbeat, dict) else None
+                if (not isinstance(heartbeat, dict) or heartbeat.get("ready") is not True
+                        or type(stamp) not in (int, float) or not math.isfinite(stamp)):
+                    return self.reply({}, status=503)
+                now = time.time()
+                if now - stamp / 1000 > 3 or stamp / 1000 - now > 1:
+                    return self.reply({}, status=503)
+                age = now - path.stat().st_mtime
                 if demo.running and age > 3:
                     return self.reply({}, status=503)
-                frame_state = "paused" if age > 3 else "live"
+                frame_state = ("waiting" if live2.running else "paused") if age > 3 else "live"
                 return self.reply(path.read_bytes(), "image/jpeg", frame_state=frame_state)
-            except (OSError, ValueError, KeyError):
+            except (OSError, ValueError, KeyError, TypeError, OverflowError):
                 return self.reply({}, status=503)
 
         def scenario_one(self, path, data=None):
@@ -326,6 +340,26 @@ def serve(port, engine_port):
             if path == "/scenario-1/operator.js":
                 script = REPO / "ui" / "operator.js"
                 return self.reply(script.read_bytes(), "text/javascript; charset=utf-8")
+            if path == "/scenario-1/live/status":
+                if not self.is_jury(url.query):
+                    return self.reply({}, status=403)
+                snapshot = live.snapshot()
+                try:
+                    snapshot["state"] = EngineClient(live.engine_url, timeout=3).state()
+                except Exception:
+                    snapshot["state"] = None
+                return self.reply(snapshot)
+            if path == "/scenario-2/live/status":
+                if not self.is_jury(url.query):
+                    return self.reply({}, status=403)
+                snapshot = live2.snapshot()
+                folder = Demo.run_folder(live2.active)
+                snapshot["rows"] = Demo.rows(folder)
+                try:
+                    snapshot["state"] = EngineClient(live2.engine_url, timeout=3).state()
+                except Exception:
+                    snapshot["state"] = None
+                return self.reply(snapshot)
             if path.startswith(SCENARIO_ONE_API + "/"):
                 if not self.is_jury(url.query):
                     return self.reply({}, status=403)
@@ -357,6 +391,16 @@ def serve(port, engine_port):
                 return self.reply({}, status=404)
             if not self.is_jury(url.query):
                 return self.reply({}, status=403)
+            live_replay = re.fullmatch(r"/scenario-2/live/replay/(run-[a-z0-9_]+)(?:/([0-9]{4}\.png))?", path)
+            if live_replay:
+                folder = next(live2.output_root.glob(f"*/{live_replay[1]}"), None)
+                if folder:
+                    if not live_replay[2]:
+                        return self.reply(Demo.rows(folder))
+                    frame = folder / live_replay[2]
+                    if frame.is_file():
+                        return self.reply(frame.read_bytes(), "image/png")
+                return self.reply({}, status=404)
             if path == "/status":
                 return self.reply(demo.status())
             if path in ("/front", "/spectator"):
@@ -377,20 +421,57 @@ def serve(port, engine_port):
                 return self.reply({}, status=403)
             try:
                 size = int(self.headers.get("Content-Length", "0"))
-                if not 1 <= size <= 1024:
+                max_body = 4096 if self.path.startswith(("/scenario-1/live/", "/scenario-2/live/")) else 1024
+                if not 1 <= size <= max_body:
                     raise ValueError
                 data = json.loads(self.rfile.read(size))
                 if not isinstance(data, dict):
                     raise ValueError
             except (ValueError, TypeError):
                 return self.reply({}, status=400)
+            if self.path in ("/scenario-2/live/start", "/scenario-2/live/reset"):
+                try:
+                    with live2.lock, demo.lock:
+                        if demo.running:
+                            return self.reply({"error": "A scripted rehearsal is active."}, status=409)
+                        if self.path.endswith("/start"):
+                            result = live2.start(data)
+                        else:
+                            if data:
+                                return self.reply({"error": "Reset requires an empty body."}, status=400)
+                            result = live2.reset()
+                    return self.reply(result)
+                except LiveConflict as error:
+                    return self.reply({"error": str(error)}, status=409)
+                except LiveRequestError as error:
+                    return self.reply({"error": str(error)}, status=400)
+                except Exception:
+                    return self.reply({"error": "Scenario 2 engine is unavailable."}, status=503)
+            if self.path in ("/scenario-1/live/start", "/scenario-1/live/reset"):
+                try:
+                    if self.path.endswith("/start"):
+                        result = live.start(data)
+                    else:
+                        if data:
+                            return self.reply({"error": "Reset requires an empty body."}, status=400)
+                        result = live.reset()
+                    return self.reply(result)
+                except LiveConflict as error:
+                    return self.reply({"error": str(error)}, status=409)
+                except LiveRequestError as error:
+                    return self.reply({"error": str(error)}, status=400)
+                except Exception:
+                    return self.reply({"error": "Scenario 1 engine is unavailable."}, status=503)
             if self.path.startswith(SCENARIO_ONE_API + "/"):
                 upstream = self.path.removeprefix(SCENARIO_ONE_API)
                 if upstream in SCENARIO_ONE_POST:
-                    return self.scenario_one(upstream, json.dumps(data).encode())
+                    with live.lock:
+                        if live.running:
+                            return self.reply({"error": "A live run is active."}, status=409)
+                        return self.scenario_one(upstream, json.dumps(data).encode())
                 return self.reply({}, status=404)
-            with demo.lock:
-                if demo.running:
+            with live2.lock, demo.lock:
+                if demo.running or live2.running:
                     return self.reply({"error": "Run already active"}, status=409)
                 if self.path == "/select":
                     layout = data.get("layout")

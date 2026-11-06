@@ -25,6 +25,7 @@ ACTION_ROUTES = {
     "/run/finish": ("finish", "reason", ()),
 }
 MAX_ACTION_BODY = 1024
+MOTION_LIMITS = {"distance": 10, "degrees": 360}
 
 
 class DiagnosticAdapter:
@@ -151,6 +152,8 @@ class EngineHandler(BaseHTTPRequestHandler):
             return ()
         if type(value) not in (int, float) or not math.isfinite(value):
             raise ValueError("Expected a finite number")
+        if abs(value) > MOTION_LIMITS[parameter]:
+            raise ValueError("Motion exceeds the supported range")
         return (value,)
 
     def write_response(self, status, content_type, body):

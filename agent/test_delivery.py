@@ -90,7 +90,45 @@ class GreenDropZoneTests(unittest.TestCase):
                 self.assertFalse(zone.observe(self.frame(), pose()))
                 self.assertFalse(zone.ready(pose()))
         zone = GreenDropZone("Drop in the green zone")
-        self.assertFalse(zone.observe(self.frame(), pose(holding=False)))
+        self.assertTrue(zone.observe(self.frame(), pose(holding=False)))
+        self.assertFalse(zone.ready(pose(holding=False)))
+
+    def test_small_floor_fragment_before_pickup_is_search_only_until_full_reobservation(self):
+        image = Image.new("RGB", (640, 480), (199, 195, 184))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((400, 220, 450, 232), fill=(45, 135, 80),
+                       outline=(190, 225, 205), width=2)
+        fragment = self.directory / "fragment.png"
+        image.save(fragment)
+        zone = GreenDropZone("Fetch yellow cone and drop it in the green zone")
+        self.assertTrue(zone.observe(fragment, pose(holding=False, name="Locate")))
+        self.assertTrue(zone.search_known)
+        self.assertFalse(zone.known)
+        self.assertFalse(zone.ready(pose()))
+        self.assertIsNone(zone.correction(pose()))
+        arrival = zone._arrival(pose())
+        self.assertGreater(arrival[0], 2)
+        self.assertGreater(arrival[1], 0)
+        self.assertIn("only as a search direction", zone.guidance(pose()))
+        self.assertIn("before dropping", zone.guidance(pose()))
+        self.assertFalse(zone.observe(self.frame(occluded=True), pose()))
+        self.assertEqual(zone._arrival(pose()), arrival)
+        self.assertTrue(zone.observe(self.frame(), pose()))
+        self.assertTrue(zone.known)
+        self.assertTrue(zone.ready(forward(pose(), 1.1)))
+
+    def test_ambiguous_small_green_fragments_do_not_choose_a_search_destination(self):
+        image = Image.new("RGB", (640, 480), (199, 195, 184))
+        draw = ImageDraw.Draw(image)
+        for left in (160, 400):
+            draw.rectangle((left, 220, left + 50, 232), fill=(45, 135, 80),
+                           outline=(190, 225, 205), width=2)
+        path = self.directory / "ambiguous-fragments.png"
+        image.save(path)
+        zone = GreenDropZone("Drop in the green zone")
+        self.assertFalse(zone.observe(path, pose(holding=False)))
+        self.assertFalse(zone.search_known)
+        self.assertFalse(zone.known)
 
     def test_correction_turn_and_move_are_bounded_and_never_release(self):
         zone = GreenDropZone("Drop in the green zone")

@@ -18,8 +18,9 @@ function startFeed(id, path, active = () => true) {
       if (displayed) URL.revokeObjectURL(displayed);
       displayed = candidate;
       candidate = null;
-      note.textContent = response.headers.get('X-Frame-State') === 'paused'
-        ? 'Paused · last simulator frame' : 'Live feed';
+      const frameState = response.headers.get('X-Frame-State');
+      note.textContent = frameState === 'waiting' ? 'Agent thinking · latest simulator frame'
+        : frameState === 'paused' ? 'Paused · last simulator frame' : 'Live feed';
     } catch {
       retryDelay = 150;
       note.textContent = displayed

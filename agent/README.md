@@ -72,6 +72,23 @@ alignment or approach correction, subject to the normal motion guards.
 provider invocation still counts in `model_requests`. This floor-zone helper
 does not identify other zone colors or certify arbitrary obstacle routes.
 
+The hybrid profile also projects visible floor edges of tall neutral or cool
+panels into a bounded obstacle memory. The edges remain relevant when a close
+panel leaves the camera view. A swept body check redirects an unsafe advance
+into a consistent side detour, with short moves until public odometry confirms
+both forward and lateral clearance. Turns and forward motion account for the
+Rover Lab carried attachment as well. These checks cover observed panels;
+other objects and unseen obstacles still require camera-guided navigation.
+After contact, a recovery scan continues far enough outside the blocked heading
+before side travel, rather than repeatedly proposing forbidden approaches.
+All corrections retain their original and applied actions in `adjustments.jsonl`.
+
+Cone approaches retain a verified floor anchor through small safe alignment
+turns, reassociating it with the refreshed camera before further local motion.
+Earlier partial green-floor views can supply a return search direction before
+pickup. Such hints cannot authorize a drop: the full marked floor-region check
+still applies when the rover arrives.
+
 All local actions still count toward the 60-decision limit. `model_requests`
 counts provider invocations separately. `decision_sources.jsonl` identifies
 `model`, `local_approach_probe`, or `local_pickup_check` for each step and maps

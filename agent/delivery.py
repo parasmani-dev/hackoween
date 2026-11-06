@@ -61,10 +61,57 @@ class GreenDropZone:
         self._polygon = []
         self._center = None
         self._area = 0.0
+        self._search_point = None
 
     @property
     def known(self):
         return bool(self._polygon)
+
+    @property
+    def search_known(self):
+        """A camera-derived search hint exists; this never authorizes release."""
+        return self.known or self._search_point is not None
+
+    @staticmethod
+    def _bounds(pixels):
+        return (min(index % 320 for index in pixels), min(index // 320 for index in pixels),
+                max(index % 320 for index in pixels), max(index // 320 for index in pixels))
+
+    @staticmethod
+    def _markings(rgb, bounds):
+        left, top, right, bottom = bounds
+        markings = 0
+        for y in range(max(100, top - 3), min(240, bottom + 4)):
+            for x in range(max(0, left - 3), min(320, right + 4)):
+                index = y * 320 + x
+                r, g, b = rgb[index * 3:index * 3 + 3]
+                if (g >= r * 1.03 and g >= b * 1.03 and min(r, g, b) > 120
+                        and max(r, g, b) > 155 and max(r, g, b) - min(r, g, b) < 100):
+                    markings += 1
+        return markings
+
+    def _remember_search(self, components, rgb, pose):
+        if self.search_known:
+            return False
+        candidates = []
+        for pixels in components:
+            bounds = self._bounds(pixels)
+            left, top, right, bottom = bounds
+            width, height = right - left, bottom - top
+            if (width < 8 or height < 2 or height / width >= 0.6
+                    or bottom >= 238 or self._markings(rgb, bounds) < 2):
+                continue
+            points = [point for index in pixels
+                      if (point := self._project(index % 320, index // 320, pose)) is not None]
+            if len(points) < 15:
+                continue
+            candidates.append(points)
+        if len(candidates) != 1:
+            return False
+        points = candidates[0]
+        self._search_point = tuple(sum(point[axis] for point in points) / len(points)
+                                   for axis in (0, 1))
+        return True
 
     @staticmethod
     def _pose(state):
@@ -92,14 +139,16 @@ class GreenDropZone:
                 pose[1] - forward * math.sin(angle) - lateral * math.cos(angle))
 
     def observe(self, path, state):
-        """Acquire a marked, bounded floor patch; retain stronger earlier views.
+        """Remember floor evidence before pickup and retain stronger views.
 
         Small/clipped fragments cannot replace a useful earlier polygon. The
         convex hull covers the observed patch, including its printed markings;
         no unseen rectangle dimensions or hidden corners are extrapolated.
+        A small marked fragment supplies only a search direction, never a
+        release polygon. True means new search or arrival evidence was acquired.
         """
         pose = self._pose(state)
-        if not self.enabled or pose is None or state.get("holding") is not True:
+        if not self.enabled or pose is None:
             return False
         try:
             with Image.open(path) as image:
@@ -131,37 +180,31 @@ class GreenDropZone:
                     if neighbor >= 0 and mask[neighbor] == 1:
                         mask[neighbor] = 2
                         queue.append(neighbor)
-            if len(queue) >= 80:
+            if len(queue) >= 20:
                 components.append(queue)
         components.sort(key=len, reverse=True)
+        search_acquired = self._remember_search(components, rgb, pose)
+        components = [pixels for pixels in components if len(pixels) >= 80]
         if not components or (len(components) > 1 and len(components[1]) >= len(components[0]) * 0.65):
-            return False
+            return search_acquired
         pixels = components[0]
-        left, right = min(index % 320 for index in pixels), max(index % 320 for index in pixels)
-        top, bottom = min(index // 320 for index in pixels), max(index // 320 for index in pixels)
+        left, top, right, bottom = self._bounds(pixels)
         if left <= 1 or right >= 318 or bottom >= 238 or right - left < 18 or bottom - top < 7:
-            return False
+            return search_acquired
         # Printed pale markings distinguish the floor zone from plain green
         # objects. Cream floor and teal wall fail the green-biased marking test.
-        markings = 0
-        for y in range(max(100, top - 3), min(240, bottom + 4)):
-            for x in range(max(0, left - 3), min(320, right + 4)):
-                index = y * 320 + x
-                r, g, b = rgb[index * 3:index * 3 + 3]
-                if (g >= r * 1.03 and g >= b * 1.03 and min(r, g, b) > 120
-                        and max(r, g, b) > 155 and max(r, g, b) - min(r, g, b) < 100):
-                    markings += 1
+        markings = self._markings(rgb, (left, top, right, bottom))
         if markings < 8:
-            return False
+            return search_acquired
         points = [point for index in pixels
                   if (point := self._project(index % 320, index // 320, pose)) is not None]
         polygon = _hull(points)
         center, area = _interior(polygon)
         if center is None or not 0.35 <= area <= 6.0 or not _inside(polygon, center, DROP_MARGIN):
-            return False
+            return search_acquired
         if any(max(point[axis] for point in polygon) - min(point[axis] for point in polygon) > 3.5
                for axis in (0, 1)):
-            return False
+            return search_acquired
         if self.known:
             # A partial or inconsistent near view must not shift the remembered
             # floor region under the carried object.
@@ -184,9 +227,10 @@ class GreenDropZone:
 
     def _arrival(self, state):
         pose = self._pose(state)
-        if not self.known or pose is None:
+        if not self.search_known or pose is None:
             return None
-        dx, dy = self._center[0] - pose[0], self._center[1] - pose[1]
+        target = self._center if self.known else self._search_point
+        dx, dy = target[0] - pose[0], target[1] - pose[1]
         bearing = math.degrees(math.atan2(-dy, dx))
         return math.hypot(dx, dy), math.remainder(bearing - pose[2], 360)
 
@@ -194,6 +238,16 @@ class GreenDropZone:
         if not self.enabled or state.get("holding") is not True:
             return ""
         if not self.known:
+            if self.search_known and (arrival := self._arrival(state)) is not None:
+                distance, angle = arrival
+                return (
+                    " Holding is confirmed. Keep carrying; do not pick up again. "
+                    "An earlier camera view showed a small marked green floor patch, "
+                    f"now about {distance:.2f} m away with bearing correction {angle:+.1f} degrees. "
+                    "Use this only as a search direction, navigate around observed obstacles, "
+                    "and reobserve the full marked floor region before dropping. "
+                    "The remembered fragment does not prove a safe release position."
+                )
             return " Holding is confirmed. Keep carrying; do not pick up again. Find a clearly marked green floor zone before dropping."
         arrival = self._arrival(state)
         if arrival is None:

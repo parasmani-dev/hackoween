@@ -20,7 +20,12 @@ class FloorApproach:
     contact, successful acquisition, or a deliberate target change.
     """
 
-    def __init__(self):
+    def __init__(self, *, max_heading_change=3.0):
+        if (type(max_heading_change) not in (int, float)
+                or not math.isfinite(max_heading_change)
+                or not 0 < max_heading_change <= 15):
+            raise ValueError("Approach heading change must be positive and at most 15 degrees.")
+        self.max_heading_change = float(max_heading_change)
         self._vision = ApproachTracker()
         self.reset()
 
@@ -96,6 +101,32 @@ class FloorApproach:
         self._previous = component
         return True
 
+    def reorient(self, path, state):
+        """Reassociate a round target after a successful small alignment turn.
+
+        The observed world floor point stays fixed. Only the straight-approach
+        reference changes, after the same unique color component is verified.
+        The caller limits this to rotationally symmetric cone approaches.
+        """
+        if self._ground is None:
+            return False
+        pose = self._pose(state)
+        if (pose is None or abs(math.remainder(pose[2] - self._last_pose[2], 360))
+                > self.max_heading_change):
+            return False
+        candidates = [component for component in self._vision._components(path)
+                      if (self._foreground(component, clipped=True)
+                          or self._foreground(component, clipped=False))
+                      and _hue_distance(component.hue, self._hue) <= 12]
+        if len(candidates) != 1:
+            return False
+        forward, lateral = self._local(self._ground, pose)
+        if not 0.32 <= forward <= 2.5 or abs(lateral) > 0.16:
+            return False
+        self._origin = self._last_pose = pose
+        self._previous = candidates[0]
+        return True
+
     def distance(self, path, state):
         """Return a bounded move, None for lost evidence, or zero at clearance.
 
@@ -113,9 +144,10 @@ class FloorApproach:
         moved = math.hypot(pose[0] - self._origin[0], pose[1] - self._origin[1])
         increment = math.hypot(pose[0] - self._last_pose[0], pose[1] - self._last_pose[1])
         along, sideways = self._local((pose[0], pose[1]), self._origin)
-        if (abs(math.remainder(pose[2] - self._origin[2], 360)) > 3.0
+        sideways_limit = 0.12 if self.max_heading_change == 15.0 else 0.06
+        if (abs(math.remainder(pose[2] - self._origin[2], 360)) > self.max_heading_change
                 or moved > 1.25 or increment > 0.60
-                or along < -0.03 or abs(sideways) > 0.06):
+                or along < -0.03 or abs(sideways) > sideways_limit):
             self.reset()
             return None
         foreground = [component for component in self._vision._components(path)

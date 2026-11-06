@@ -15,6 +15,17 @@ def pose(x=0.0, y=0.0, heading=0.0):
 
 
 class FloorApproachTests(unittest.TestCase):
+    def test_round_target_reorientation_preserves_ground_point_and_motor_yaw_margin(self):
+        approach = FloorApproach(max_heading_change=15)
+        self.assertTrue(approach.observe(self.frame(), pose(), "visible"))
+        ground = approach._ground
+        clipped = self.frame(clipped=True)
+        self.assertTrue(approach.reorient(clipped, pose(x=.5, heading=13)))
+        self.assertEqual(approach._ground, ground)
+        self.assertIsNotNone(approach.distance(clipped, pose(x=.57, heading=17)))
+        self.assertFalse(approach.reorient(self.frame(clipped=True, color=(30, 30, 230)),
+                                         pose(x=.57, heading=17)))
+
     def setUp(self):
         temporary = TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -123,6 +134,23 @@ class FloorApproachTests(unittest.TestCase):
         self.assertGreater(approach.distance(self.frame(clipped=True), pose(x=0.5)), 0.07)
         approach.reset()
         self.assertIsNone(approach.distance(self.frame(clipped=True), pose(x=0.5)))
+
+    def test_explicit_symmetric_profile_retains_anchor_after_small_alignment(self):
+        visible = self.frame(box=(80, 54, 110, 87))
+        clipped = self.frame(clipped=True)
+        angle = math.radians(13)
+        aligned = pose(x=0.5 * math.cos(angle), y=-0.5 * math.sin(angle), heading=13.0)
+        approach = FloorApproach(max_heading_change=15.0)
+        self.assertTrue(approach.observe(visible, pose(), "visible"))
+        distance = approach.distance(clipped, aligned)
+        self.assertIsNotNone(distance)
+        self.assertGreater(distance, 0.02)
+        self.assertLessEqual(distance, 0.10)
+        self.assertIsNone(approach.distance(clipped, {**aligned, "heading": 16.0}))
+        # The default profile keeps its existing conservative heading limit.
+        approach = FloorApproach()
+        self.assertTrue(approach.observe(visible, pose(), "visible"))
+        self.assertIsNone(approach.distance(clipped, aligned))
 
 
 if __name__ == "__main__":

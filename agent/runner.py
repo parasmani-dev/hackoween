@@ -2,6 +2,8 @@
 
 import base64
 import json
+import math
+import re
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -19,6 +21,7 @@ from .observations import VisualMemory
 from .tracking import ApproachTracker
 from .approach import FloorApproach
 from .delivery import GreenDropZone
+from .routing import CameraRoute
 
 
 MAX_DECISIONS = 60
@@ -198,8 +201,11 @@ def run_command(
     visual_memory = VisualMemory()
     last_rejection = None
     tracker = ApproachTracker() if local_pickup_checks else None
-    floor_approach = FloorApproach() if local_pickup_checks else None
+    cone_approach = bool(re.search(r"\bcone\b", command, re.I))
+    floor_approach = (FloorApproach(max_heading_change=15.0 if cone_approach else 3.0)
+                      if local_pickup_checks else None)
     delivery = GreenDropZone(command) if local_pickup_checks else None
+    routing = CameraRoute(command) if local_pickup_checks else None
     local_approach_probes = 0
 
     def reset_tracking(*, keep_range=False):
@@ -228,8 +234,20 @@ def run_command(
                 }) + "\n")
                 journal.flush()
 
+            def adjusted(proposal, replacement, reason, step, frame_name):
+                name, args = replacement
+                with (run_dir / "adjustments.jsonl").open("a", encoding="utf-8") as adjustments:
+                    adjustments.write(json.dumps({
+                        "step": step, "reason": reason,
+                        "proposed_tool": proposal.name, "proposed_args": proposal.args,
+                        "applied_tool": name, "applied_args": args, "frame_path": frame_name,
+                    }) + "\n")
+                return Decision(name, args, proposal.usage, proposal.observation)
+
             for step in range(1, max_decisions + 1):
-                if delivery is not None and state["holding"]:
+                if routing is not None:
+                    routing.observe(run_dir / frame_name, state)
+                if delivery is not None:
                     delivery.observe(run_dir / frame_name, state)
                 context = json.dumps({
                     "command": command,
@@ -239,6 +257,9 @@ def run_command(
                 }, separators=(",", ":"))
                 decisions = step
                 system = _navigation_prompt(history) + navigation.guidance() + visual_memory.guidance()
+                system += navigation.recovery_guidance(state)
+                if routing is not None:
+                    system += routing.guidance(state)
                 if delivery is not None:
                     system += delivery.guidance(state)
                 alternating_turns = _alternating_turns(history)
@@ -311,27 +332,41 @@ def run_command(
                     with (run_dir / "observations.jsonl").open("a", encoding="utf-8") as observations:
                         observations.write(json.dumps(observation) + "\n")
 
+                if (routing is not None and cone_approach and step == 1
+                        and navigation.target_base == "unknown" and not state["holding"]
+                        and decision.name == "turn"):
+                    search = routing.search_turn(state)
+                    if search is not None and search * decision.args["degrees"] < 0:
+                        decision = adjusted(decision, ("turn", {"degrees": search}),
+                                            "camera_occlusion_search", step, frame_name)
                 early_drop = (delivery is not None and delivery.known
                               and state["holding"] and state["state"] != "Blocked"
                               and decision.name == "drop" and not delivery.ready(state))
                 if early_drop:
                     correction = delivery.correction(state)
                     if correction is not None:
-                        name, args = correction
-                        with (run_dir / "adjustments.jsonl").open("a", encoding="utf-8") as adjustments:
-                            adjustments.write(json.dumps({
-                                "step": step, "reason": "drop_outside_observed_zone",
-                                "proposed_tool": decision.name, "proposed_args": decision.args,
-                                "applied_tool": name, "applied_args": args,
-                                "frame_path": frame_name,
-                            }) + "\n")
-                        decision = Decision(name, args, decision.usage, decision.observation)
+                        decision = adjusted(decision, correction, "drop_outside_observed_zone",
+                                            step, frame_name)
                         early_drop = False
+                if routing is not None and source == "model":
+                    correction = routing.propose(
+                        decision.name, decision.args, state,
+                        preferred_side=navigation.detour_turn_sign if navigation.repositioning else None,
+                    )
+                    if correction is not None:
+                        decision = adjusted(decision, correction, "camera_obstacle_route", step, frame_name)
                 timestamp = datetime.now(timezone.utc).isoformat()
                 rejection = navigation.rejection(
                     decision.name, decision.args, state, frame_name,
                     probe_limit=probe_distance if local_probe else MAX_PICKUP_PROBE,
                 )
+                if (routing is not None and source == "model"
+                        and rejection in ("previously_blocked_approach", "recovery_requires_translation")):
+                    escape = navigation.escape_turn(state)
+                    if escape is not None:
+                        decision = adjusted(decision, ("turn", {"degrees": escape}),
+                                            "recovery_escape_scan", step, frame_name)
+                        rejection = navigation.rejection(decision.name, decision.args, state, frame_name)
                 if early_drop:
                     rejection = "drop_outside_observed_zone"
                 if decision.name == "turn" and (
@@ -383,11 +418,21 @@ def run_command(
                 pickup_base = navigation.target_base
                 navigation.observe(decision.name, decision.args, result, state, next_state,
                                    action_frame_name)
+                if routing is not None and (
+                    result.get("collided") or (decision.name == "turn" and not result["success"])
+                ):
+                    routing.contact()
                 if tracker is not None:
                     if (decision.name == "turn"
                             or (decision.name == "move" and (not result["success"] or result.get("collided")))
                             or (decision.name == "pickup" and result["success"])):
-                        reset_tracking()
+                        keep_range = (cone_approach and decision.name == "turn" and result["success"]
+                                      and not navigation.repositioning and not next_state["holding"]
+                                      and next_state["state"] != "Blocked"
+                                      and abs(math.remainder(next_state["heading"] - state["heading"], 360)) <= 15)
+                        reset_tracking(keep_range=keep_range)
+                        if (keep_range and not floor_approach.reorient(run_dir / frame_name, next_state)):
+                            floor_approach.reset()
                     elif (source == "model" and decision.name == "pickup" and not result["success"]
                           and pickup_base == "clipped" and not navigation.repositioning
                           and not next_state["holding"]

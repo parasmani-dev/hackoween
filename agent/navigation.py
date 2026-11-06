@@ -50,6 +50,55 @@ class NavigationMemory:
             self.views.popitem(last=False)
         self.current_cell = cell
 
+    def escape_turn(self, state):
+        """Suggest a bounded continued scan after the camera chose a side.
+
+        This does not select a side, authorize a drive, or retire a collision
+        ban. It gives the caller a concrete alternative when a proposed drive
+        still points into the blocked fan, or a proposed turn undoes the detour.
+        The caller must retain camera checks, normal guards, and a fresh look.
+        """
+        if (not self.repositioning or self.detour_turn_sign is None
+                or not self.collisions):
+            return None
+        heading = state.get("heading")
+        if type(heading) not in (int, float) or not math.isfinite(heading):
+            return None
+        direction = self.collisions[-1]["direction"]
+        difference = math.remainder(heading - direction, 360)
+        if abs(difference) >= 55:
+            return None
+        progress = max(0.0, self.detour_turn_sign * difference)
+        return self.detour_turn_sign * min(25.0, max(3.0, 55.0 - progress))
+
+    def recovery_guidance(self, state):
+        """Explain the measured escape angle without supplying scene facts."""
+        if not self.repositioning or not self.collisions:
+            return ""
+        turn = self.escape_turn(state)
+        if self.detour_turn_sign is None:
+            return (
+                " Collision recovery has no chosen side yet. Retreat away from the contact "
+                "if the current camera supports it, then choose a visibly clear side and "
+                "make a useful turn. Small heading corrections do not clear the blocked corridor."
+            )
+        if turn is not None:
+            return (
+                " The chosen detour still points too close to the collided approach. "
+                f"Continue the same-side scan by {turn:+.1f} degrees now, then inspect the fresh image. "
+                "Aim for at least 55 degrees of heading separation before side-route travel; "
+                "do not undo the turn or drive back into the remembered blocked corridor. "
+                "A safe reverse retreat remains available when it leads away from contact."
+            )
+        return (
+            " The detour heading has separated from the collided approach. Use the fresh "
+            "camera to choose a clear short side-route move, or continue scanning in the "
+            "chosen direction if the floor is blocked. "
+            f"Measured lateral clearance is {self.detour_progress:.2f} m; "
+            "build more than 0.30 m before turning back toward the target. "
+            "Heading separation alone does not prove the floor is clear."
+        )
+
     def rejection(self, name, args, state, frame, *, probe_limit=MAX_PICKUP_PROBE):
         if name == "pickup" and state["holding"]:
             return "already_holding"
@@ -111,8 +160,9 @@ class NavigationMemory:
                 self.detour_direction = None
                 self.detour_progress = 0.0
         if name == "turn" and result["success"] and self.repositioning:
-            if self.detour_turn_sign is None and abs(args["degrees"]) >= 10:
-                self.detour_turn_sign = math.copysign(1, args["degrees"])
+            actual_turn = math.remainder(after["heading"] - before["heading"], 360)
+            if self.detour_turn_sign is None and abs(actual_turn) > 2:
+                self.detour_turn_sign = math.copysign(1, actual_turn)
                 self.detour_origin = (after["x"], after["y"])
                 self.detour_direction = self.collisions[-1]["direction"]
         if name == "move" and result["success"] and self.detour_origin is not None:
