@@ -214,3 +214,11 @@ cone pickup uses the calibrated 3 cm sensor clearance (sensor is mounted 1 cm
 forward of the chassis face) with small final increments, rather than turning
 forever just outside reach. Earlier failed prototypes remain in local run artifacts.
 These local-controller results do not claim a new live API acceptance result.
+
+
+Incomplete local requests ask a focused clarification before Start. For example,
+`fetch the red sphere` asks for the destination zone; `bring the blue object` asks
+for shape and destination. The response sets `clarification_required: true`, the
+UI displays the question, and no run/action is started. Edit the command to answer
+it. Unsupported open-ended wording returns supported command examples. Per the
+chosen scope, local mode stays script-based and no local model is installed.

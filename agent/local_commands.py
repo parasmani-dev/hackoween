@@ -13,6 +13,10 @@ SHAPES = 'sphere|ball|cube|box|cylinder|cone'
 NUMBER = r'(?:\d+(?:\.\d+)?|\.\d+)'
 
 
+class LocalClarification(ValueError):
+    """A question the operator must resolve before any run starts."""
+
+
 @dataclass(frozen=True)
 class LocalPlan:
     kind: str
@@ -31,6 +35,15 @@ def parse_command(command):
     if fetch:
         color,shape,zone=fetch.groups();shape={'ball':'sphere','box':'cube'}.get(shape,shape)
         return LocalPlan('fetch',f'Fetch the {color} {shape} and drop it in the {zone} zone',())
+    incomplete=re.fullmatch(rf'(?:fetch|bring|get|retrieve|pick up|pickup|pick) (?:the |a )?({COLORS}) ({SHAPES})',text)
+    if incomplete:
+        color,shape=incomplete.groups()
+        raise LocalClarification(f'Which destination zone should receive the {color} {shape}? '
+            f'For example: fetch the {color} {shape} and drop it in the green zone.')
+    if re.fullmatch(rf'(?:fetch|bring|get|retrieve) (?:the |a )?({COLORS}) (?:object|item)',text):
+        raise LocalClarification('Which shape do you mean, and which destination zone? '
+            'Specify sphere/ball, cube/box, cylinder or cone and a colored zone.')
+
     actions=[]
     for part in re.split(r'\s*(?:,|;|\bthen\b|\band\b)\s*',text):
         part=re.sub(r'^rover ','',part.strip())
@@ -53,7 +66,7 @@ def parse_command(command):
             actions.append(('pickup',{}))
         elif part in ('drop','drop it','release','put down'):
             actions.append(('drop',{}))
-        else:raise ValueError('Unsupported or ambiguous local step: '+part[:80]+'. '+HELP)
+        else:raise LocalClarification('What should the rover do with this request? Local mode needs a supported fetch or movement sequence. '+HELP)
         if len(actions)>60:raise ValueError('Command expands beyond 60 actions. Use a shorter sequence.')
     return LocalPlan('sequence',text,tuple(actions))
 

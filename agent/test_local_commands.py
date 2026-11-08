@@ -4,7 +4,7 @@ from io import BytesIO
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock,patch
 from PIL import Image
-from agent.local_commands import parse_command,LocalPolicy
+from agent.local_commands import parse_command,LocalPolicy,LocalClarification
 from agent.runner import run_command
 
 
@@ -16,6 +16,12 @@ class LocalCommandTests(unittest.TestCase):
             plan=parse_command(text)
             self.assertEqual(plan.kind,'fetch')
             self.assertEqual(plan.canonical,'Fetch the red sphere and drop it in the green zone')
+
+    def test_incomplete_request_asks_for_destination_and_ambiguous_object_asks_shape(self):
+        for text,question in [('fetch the red sphere','Which destination zone'),
+                              ('bring the blue object','Which shape')]:
+            with self.subTest(text=text),self.assertRaisesRegex(LocalClarification,question):
+                parse_command(text)
 
     def test_movement_sequences_expand_bounded_steps_and_preserve_signs(self):
         plan=parse_command('move forward 1 metre, turn left 90 degrees, go backward 25 cm; pick up then drop')

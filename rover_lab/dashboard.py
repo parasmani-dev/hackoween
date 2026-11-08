@@ -22,6 +22,7 @@ from agent.claude import Decision
 from agent.engine import EngineClient
 from agent.runner import run_command
 from rover_lab.live import LiveRun
+from agent.local_commands import LocalClarification
 
 COMMAND = "Fetch the blue cylinder beside the yellow cone and drop it in the green zone"
 RED_CUBE_COMMAND = COMMAND.replace("yellow cone", "red cube")
@@ -443,6 +444,8 @@ def create_server(port, engine_port):
                         live.start(data.get("command"), data.get("max_decisions"), data.get("execution_mode", "live"))
                         return self.reply({"state": "Locate"}, status=202)
                     return self.reply(live.reset())
+                except LocalClarification as error:
+                    return self.reply({"error": str(error), "clarification_required": True}, status=400)
                 except ValueError as error:
                     return self.reply({"error": str(error)}, status=400)
                 except RuntimeError as error:
