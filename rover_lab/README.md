@@ -20,3 +20,205 @@ python rover_lab/verify.py
 ```
 
 For a port offset, use the URL and runtime directory printed by the launcher. Rover Lab writes generated evidence, camera frames, and simulator logs under `runs/`. The site includes small preview images from a scripted run and Geist fonts under their [SIL Open Font License](site/LICENSE.txt).
+The offline verifier allows 150 seconds per rehearsal by default; use
+`ROVER_LAB_VERIFY_TIMEOUT` to change that test deadline on a slower machine.
+It does not alter engine action timeouts or model decision caps.
+
+## Claude Haiku 4.5 in the new UI
+
+Scenario 1 at `/scenario-1` includes offline and live modes. The default launcher
+keeps live mode disabled. Scenario 2 remains an offline scripted rehearsal.
+To enable Haiku, set `ANTHROPIC_API_KEY` in the local environment or `.env` and run:
+
+```powershell
+./rover_lab/start.ps1 -WebotsExe C:/path/to/webots.exe -EnableLiveAgent
+```
+
+Use `-EnvFile C:/path/to/.env` for an environment file outside this checkout.
+The Haiku client pins `claude-haiku-4-5-20251001` without changing `CLAUDE_MODEL`
+or the OpenAI path. Only the dashboard process receives the Claude credential.
+Enabling the launcher makes no API calls. On Scenario 1 select live mode,
+enter a command and a decision cap (1–60, default 50), then press Start Haiku fetch.
+The server owns Start, agent execution and Finish. Reset and overlapping starts
+are blocked during a run. The page shows the latest five actions and final verdict.
+Live model requests, JSONL/PNG artifacts and private capture metadata are saved
+under the printed runtime directory's `live/attempt-*` folder. Credentials and
+private evaluator/capture fields never enter browser status or model requests.
+
+Before a paid run, run the unit regressions and the offline live-path verifier:
+
+```powershell
+python -B -m unittest agent.test_clients agent.test_runner agent.test_affordances rover_lab.test_live -v
+# Start Rover Lab WITHOUT -EnableLiveAgent, then use its printed ports:
+python -B -m rover_lab.verify_live_offline --engine-port 18836 --ui-port 8112 --run-dir runs/haiku-ui-offline
+python -B -m rover_lab.verify_navigation_offline --engine-port 18836 --output runs/navigation-camera-offline
+```
+
+For `-PortOffset 300`, the two verifier ports are 19136 and 8412. The verifier
+requires an idle test engine and resets it. It starts a temporary copy of the new
+UI server and mocks the Claude API transport, exercises authenticated Start,
+status, reset, duplicate-start guards and the real camera/engine/recording path,
+then verifies private delivery and exact model-frame matches. Its fixed fixture
+waypoints stay inside the verifier; zero provider calls and zero tokens are used.
+Artifacts are labeled `offline_scripted_transport_stub`. This proves integration,
+not autonomous Haiku navigation. The navigation prompt now calibrates small turns
+to image positions, separates pickup from zone search and handles close targets;
+the runner also rejects immediate repeat moves into a collision. Live delivery
+must be assessed separately after an authorized paid run.
+
+After a failed pickup/drop, that action is temporarily removed from both
+providers' offered tools until the rover's actual pose changes. A fallback
+guard also rejects repeated proposals from injected policies. Zero/ineffective
+motion does not unlock another attempt; three rejected proposals stop the loop.
+Only the same four public action schemas are used. Camera geometry explains why
+a target touching the image bottom can still be beyond 0.5 m center-based reach;
+the prompt uses shorter 0.05 m final approaches rather than repeated pickup at
+an unchanged pose. The verifier deliberately starts with a failed pickup and
+checks suppression, corrected motion and eventual scripted delivery.
+
+The UI reports preparing, decision progress and finalization separately. Reload
+restores the latest result within the current server session. Reset clears the
+displayed actions while preserving disk evidence. Finish and recording failures
+remain explicit instead of appearing as a successful delivery.
+
+The separate camera-calibration verifier uses red connected components as an
+offline measurement instrument, not as production perception. It checks the
+turn sign against camera pixels, aligns again after each short approach, and
+verifies actual pickup without using private target coordinates. It finishes
+and resets the test engine. This is a pickup rehearsal, not a full delivery or
+evidence of autonomous Haiku decisions.
+
+## Forward clearance before pickup
+
+The new scenes include one physical forward range ray, 0.27 m ahead of the rover
+center at 0.17 m height. The launcher opts into `/depth`; older simulator adapters
+keep depth unavailable. The engine serializes range reads with motion and returns
+only a finite metre distance (0–10) or null, never object metadata.
+
+Before dispatch, the agent rejects positive moves exceeding the latest measured
+range minus the configured positive clearance (0.03 m for calibrated camera tasks,
+0.04 m for the general/manual path). Rejections are logged without movement or a new
+image. The prompt asks for direct alignment and a pickup trial before contact.
+Controller corrections are recorded alongside the model proposal. The approach
+controller may choose a shorter move within the measured clearance.
+
+This is a centerline clearance guard, not full collision avoidance. Side contacts
+still require camera-based route selection. A carried object occludes the ray,
+so depth is unavailable while holding; camera navigation remains in use. Real
+collision physics and the private evaluator are unchanged. No collision-free
+live success is implied by an offline pass.
+
+
+### Visual continuity and call budget
+
+Both provider clients ask for a short camera observation alongside each action.
+The runner carries the latest observation to the next decision as uncertain,
+model-authored memory. It never supplies target coordinates or evaluator identity.
+The note is stripped before dispatch: engine actions retain their original payloads.
+A confirmed pickup replaces the acquisition note with the delivery objective.
+This helps preserve target identity when a near object clips below the camera;
+it does not guarantee recognition or a successful pickup.
+
+The UI defaults to 50 decisions. Each decision makes one provider request with
+no automatic transport retries; rejected proposals also consume a decision.
+This is a per-run call cap, not a change to the API account balance.
+
+
+### Camera-grounded delivery
+
+For explicit commands of the form `Fetch the <color> <shape> and drop it in the
+<color> zone`, the agent now measures colored components in the actual camera
+frame. It aligns to the measured object, projects visible floor-zone pixels using
+the fixed camera calibration, and retains that image-derived position using public
+rover odometry when the carried object obscures the floor. Observed objects form
+an inflated obstacle map for short route segments. A drop requires the calibrated
+carried-object position to reach the observed zone, rather than trusting a model's
+unverified "ready to drop" statement.
+
+The controller does not read scene files, true fixture coordinates or evaluator
+identities. Camera decisions are logged with the AI proposal. This is a hybrid
+AI/camera controller; relational or unsupported commands retain the general model
+policy. Simple saturated shapes/markings and a flat calibrated floor are required;
+this is not a general-purpose object detector for arbitrary real-world scenes.
+
+The engine holding flag controls offered tools: no drop while empty, no pickup
+while holding. Successful release immediately clears stale carrying memory.
+
+Offline complete-delivery check (provider transports are blocked):
+
+```powershell
+python -B -m rover_lab.verify_camera_fetch_offline --engine-port 19336 --output runs/camera-fetch
+```
+
+This sends deliberately inaccurate mocked AI proposals through the production
+controller and real Webots. It validates physical pickup/routing/drop and recording;
+it is not a paid Haiku acceptance run.
+
+
+## Dual command modes (Scenario 1)
+
+The console defaults to **Local commands**. Type your own command and press
+**Start local run**. No model key or provider request is needed. Select **Claude
+Haiku 4.5 · live API** to use the existing API-backed path; this still requires
+`ANTHROPIC_API_KEY` and `-EnableLiveAgent`. Both modes use the same run reservation,
+engine actions, camera, safety checks, reset and native POV capture. Mode/provider
+and interpreted command are retained in private attempt artifacts.
+
+Local grammar supports:
+
+- `bring the red ball to the green zone`
+- `fetch the blue cylinder and drop it in the green zone`
+- `retrieve the yellow cone then place it in the green area`
+- `move forward 1 metre, turn left 90 degrees, pick up`
+- `go backward 25 cm; rotate clockwise 45 degrees; drop`
+
+Fetch verbs: fetch, bring, get, retrieve, pick up/pickup/pick. Colors: red, green,
+blue, purple, yellow. Shapes: sphere/ball, cube/box, cylinder, cone. Each fetch must
+name a destination zone. Manual sequences support move/drive/go with forward or
+backward direction, turn/rotate left/right/clockwise/counterclockwise, pickup and
+drop, separated by commas, semicolons, `and`, or `then`. Distances require explicit
+m/metres/meters/cm and turns degrees/deg. Positive moves up to 10 m and turns up
+to 360 degrees are split into <=25 cm and <=45 degree actions. Expansion is capped
+at 60 actions, and the chosen per-run action limit remains binding.
+
+This is a bounded local command language, not unrestricted natural-language
+reasoning or executable Python/shell input. Unknown or ambiguous wording rejects
+the whole command before Start, with syntax guidance. Manual sequences stop on a
+failed or rejected action, instead of silently running the next instruction.
+Sequence completion is reported separately from fetch scoring. Camera fetches
+retain the simple-color/shape and flat-floor limitations described above.
+
+Start locally without an API key:
+
+```powershell
+./rover_lab/start.ps1 -WebotsExe '<existing Webots executable>' -PortOffset 700
+```
+
+Verify both HTTP modes and the real local controller with provider transports
+blocked and both provider keys empty:
+
+```powershell
+python -B -m unittest agent.test_local_commands rover_lab.test_live rover_lab.test_lifecycle -q
+python -B -m rover_lab.verify_dual_modes --engine-port 19536 --legacy-port 8812 --output runs/dual-modes-check
+```
+
+The existing preset Scenario 1 rehearsal endpoints and Scenario 2 jury demo remain
+available for compatibility. No paid run is automatically started by mode selection,
+page load, reset or service startup.
+
+
+Verification on this branch: no-key local HTTP fetch and sequence tests pass with
+both provider transports blocked. Blue-cylinder and yellow-cone full camera fetches
+also pass with zero contacts. Clipped cylinders retain their recent visual track;
+cone pickup uses the calibrated 3 cm sensor clearance (sensor is mounted 1 cm
+forward of the chassis face) with small final increments, rather than turning
+forever just outside reach. Earlier failed prototypes remain in local run artifacts.
+These local-controller results do not claim a new live API acceptance result.
+
+
+Incomplete local requests ask a focused clarification before Start. For example,
+`fetch the red sphere` asks for the destination zone; `bring the blue object` asks
+for shape and destination. The response sets `clarification_required: true`, the
+UI displays the question, and no run/action is started. Edit the command to answer
+it. Unsupported open-ended wording returns supported command examples. Per the
+chosen scope, local mode stays script-based and no local model is installed.

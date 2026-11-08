@@ -834,6 +834,7 @@ DEF ROVER Robot {
         physics Physics { density -1 mass 0.12 }
       }
     }
+    DistanceSensor { translation 0.27 0 0.17 name "forward_range" type "generic" numberOfRays 1 lookupTable [ 0 0 0, 10 10 0 ] }
     DEF FRONT_CAMERA Camera {
       translation 0.22 0 0.5
       rotation 0 1 0 0.174533

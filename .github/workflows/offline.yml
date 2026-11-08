@@ -19,7 +19,7 @@ jobs:
           node-version: '22'
       - run: python -m pip install -r agent/requirements.txt
       - name: Mocked providers, engine, capture, launcher and motor regressions
-        run: python -B -m unittest agent.test_clients agent.test_runner engine.test_run_control simulation.test_launcher simulation.test_capture simulation.test_provenance simulation.test_motor simulation.test_offline_preflight simulation.test_preview -v
+        run: python -B -m unittest agent.test_clients agent.test_runner agent.test_affordances agent.test_visual_control agent.test_camera_navigation agent.test_local_commands engine.test_run_control simulation.test_launcher simulation.test_capture simulation.test_provenance simulation.test_motor simulation.test_offline_preflight simulation.test_preview rover_lab.test_live rover_lab.test_lifecycle -v
       - name: Preview health regression
         run: node --test ui/preview.test.mjs
       - name: UI and recording syntax
@@ -27,6 +27,8 @@ jobs:
           node --check ui/server.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check ui/operator.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --check rover_lab/site/operator.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       # Real Webots and FFmpeg packaging run on the designated demo laptop using
       # integration/offline_preflight.ps1; a green CI job is not that evidence.

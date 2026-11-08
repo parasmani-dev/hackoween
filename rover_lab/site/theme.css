@@ -61,6 +61,12 @@ p{line-height:1.55}
 .console .card h2{font-size:1.2rem;margin-bottom:.72rem}
 .console h3{font-size:1rem;margin-bottom:.55rem}
 .controls{display:grid;gap:.75rem}
+.controls form{display:grid;gap:.65rem}
+.controls form label{display:block}
+.controls input{font:inherit;min-height:42px;width:100%;padding:.62rem .88rem;border:1px solid var(--edge);border-radius:9px;background:var(--panel-raised);color:var(--ink)}
+.controls input:disabled{opacity:.5}
+.controls select{max-width:100%;width:100%}
+.controls ol{font:12px/1.5 var(--mono);padding-left:1.4rem;overflow-wrap:anywhere}
 .controls p{margin-block:.15rem}
 .controls label{display:inline-flex;align-items:center;gap:.6rem}
 textarea{display:block;width:min(100%,45rem);padding:.72rem;resize:vertical;margin:.45rem 0}

@@ -21,6 +21,8 @@ sys.path.insert(0, str(REPO))
 from agent.claude import Decision
 from agent.engine import EngineClient
 from agent.runner import run_command
+from rover_lab.live import LiveRun
+from agent.local_commands import LocalClarification
 
 COMMAND = "Fetch the blue cylinder beside the yellow cone and drop it in the green zone"
 RED_CUBE_COMMAND = COMMAND.replace("yellow cone", "red cube")
@@ -258,8 +260,10 @@ class Demo:
                     "latest": self.latest.name if self.latest else None, "report": self.report.copy()}
 
 
-def serve(port, engine_port):
+def create_server(port, engine_port):
     demo = Demo(f"http://127.0.0.1:{engine_port}")
+    live = LiveRun(os.environ.get("ROVER_LAB_SCENARIO_ONE_ENGINE", "http://127.0.0.1:18836"), RUN_DIR / "live")
+    scenario_one_lifecycle = threading.Lock()
     jury_token = secrets.token_urlsafe(32)
 
     class Handler(BaseHTTPRequestHandler):
@@ -324,12 +328,14 @@ def serve(port, engine_port):
                     html = html.replace("JURY_TOKEN", jury_token)
                 return self.reply(html.encode(), "text/html; charset=utf-8")
             if path == "/scenario-1/operator.js":
-                script = REPO / "ui" / "operator.js"
+                script = SITE / "operator.js"
                 return self.reply(script.read_bytes(), "text/javascript; charset=utf-8")
             if path.startswith(SCENARIO_ONE_API + "/"):
                 if not self.is_jury(url.query):
                     return self.reply({}, status=403)
                 upstream = path.removeprefix(SCENARIO_ONE_API)
+                if upstream == "/live/status":
+                    return self.reply(live.status())
                 if upstream in SCENARIO_ONE_GET:
                     return self.scenario_one(upstream)
                 return self.reply({}, status=404)
@@ -373,7 +379,7 @@ def serve(port, engine_port):
             self.reply({}, status=404)
 
         def do_POST(self):
-            if self.headers.get("Origin") != f"http://127.0.0.1:{port}" or not self.is_jury():
+            if self.headers.get("Origin") != f"http://127.0.0.1:{self.server.server_port}" or not self.is_jury():
                 return self.reply({}, status=403)
             try:
                 size = int(self.headers.get("Content-Length", "0"))
@@ -386,9 +392,9 @@ def serve(port, engine_port):
                 return self.reply({}, status=400)
             if self.path.startswith(SCENARIO_ONE_API + "/"):
                 upstream = self.path.removeprefix(SCENARIO_ONE_API)
-                if upstream in SCENARIO_ONE_POST:
-                    return self.scenario_one(upstream, json.dumps(data).encode())
-                return self.reply({}, status=404)
+                # Reservation/check/forward must be atomic across old and new tabs.
+                with self.server.scenario_one_lifecycle:
+                    return self.scenario_one_mutation(upstream, data)
             with demo.lock:
                 if demo.running:
                     return self.reply({"error": "Run already active"}, status=409)
@@ -427,11 +433,43 @@ def serve(port, engine_port):
                     return self.reply({}, status=404)
             self.reply({"ok": True})
 
+        def scenario_one_mutation(self, upstream, data):
+            if upstream in {"/live/start", "/live/reset"}:
+                try:
+                    with urlopen(SCENARIO_ONE_ORIGIN + "/offline-demo", timeout=3) as response:
+                        offline_status = json.load(response)
+                    if offline_status.get("status") == "running":
+                        return self.reply({"error": "Offline rehearsal already active"}, status=409)
+                    if upstream == "/live/start":
+                        live.start(data.get("command"), data.get("max_decisions"), data.get("execution_mode", "live"))
+                        return self.reply({"state": "Locate"}, status=202)
+                    return self.reply(live.reset())
+                except LocalClarification as error:
+                    return self.reply({"error": str(error), "clarification_required": True}, status=400)
+                except ValueError as error:
+                    return self.reply({"error": str(error)}, status=400)
+                except RuntimeError as error:
+                    return self.reply({"error": str(error)}, status=409)
+                except Exception:
+                    return self.reply({"error": "Live request could not be confirmed."}, status=502)
+            if live.status()["running"] and upstream in SCENARIO_ONE_POST:
+                return self.reply({"error": "Live run already active"}, status=409)
+            if upstream in SCENARIO_ONE_POST:
+                return self.scenario_one(upstream, json.dumps(data).encode())
+            return self.reply({}, status=404)
+
         def log_message(self, format, *args):
             if self.command == "POST":
                 super().log_message(format, *args)
 
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    server.live_run = live
+    server.scenario_one_lifecycle = scenario_one_lifecycle
+    return server
+
+
+def serve(port, engine_port):
+    server = create_server(port, engine_port)
     print(f"Judge dashboard at http://127.0.0.1:{port}/", flush=True)
     server.serve_forever()
 
