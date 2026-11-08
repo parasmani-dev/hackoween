@@ -17,7 +17,7 @@ class LifecycleTests(unittest.TestCase):
         running = False
         forwarded = []
 
-        def reserve(command, cap):
+        def reserve(command, cap, execution_mode="live"):
             nonlocal running
             entered.set()
             if not release.wait(3):

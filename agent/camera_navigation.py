@@ -106,7 +106,7 @@ class CameraNavigator:
     def __init__(self,command):
         match=re.fullmatch(r'\s*fetch the (red|green|blue|purple|yellow) (sphere|cube|cylinder|cone) and drop it in the (red|green|blue|purple|yellow) zone[.!?]?\s*',command,re.I)
         self.task=tuple(x.lower() for x in match.groups()) if match else None
-        self.zone=None; self.zone_score=0; self.obstacles=[];self.last_target=None
+        self.zone=None; self.zone_score=0; self.obstacles=[];self.last_target=None;self.last_target_pose=None
         self.scan=0;self.debug={};self.route_target=None
 
     def decide(self,image_path,state,depth,disabled=()):
@@ -119,16 +119,25 @@ class CameraNavigator:
             for c in seen:
                 if c['color']!=color:continue
                 l,t,r,b=c['box'];aspect=(r-l)/(b-t)
-                if r-l>580:continue
+                if r-l>580 or (t<=168 and self.last_target is None):continue
                 matches=(shape=='sphere' and ((.65<aspect<1.5 and c['fill']<.89) or b>=476)
                          or shape=='cube' and c['fill']>=.8
                          or shape=='cone' and c['fill']<.7
-                         or shape=='cylinder' and .25<aspect<1.1 and c['fill']>.65)
+                         or shape=='cylinder' and ((.25<aspect<.85 and c['fill']>.8) or (b>=476 and self.last_target is not None)))
                 if matches:candidates.append(c)
             if not candidates:
+                previous=self.last_target_pose
+                recently_aligned=(previous is not None
+                    and math.hypot(state['x']-previous[0],state['y']-previous[1])<.5
+                    and abs(math.remainder(state['heading']-previous[2],360))<25)
+                if recently_aligned and depth is not None and depth<=.18:
+                    if 'pickup' not in disabled:return ('pickup',{},'camera_occluded_reach_trial')
+                    step=min(.03,max(0,depth-.035))
+                    if step>.0005:return ('move',{'distance':math.floor(step*10000)/10000},'camera_occluded_approach')
                 return ('turn',{'degrees':45},'camera_reacquire_object')
             target=max(candidates,key=lambda c:(c['box'][3],c['count']))
             self.last_target=target
+            self.last_target_pose=(state['x'],state['y'],state['heading'])
             bearing=math.degrees(math.atan((target['center']-320)/320))
             if depth is not None and depth<.8:bearing*=.7
             near=depth is not None and depth<=.10
@@ -139,8 +148,8 @@ class CameraNavigator:
             step=.25
             if depth is not None and depth<.45:step=.03 if depth<=.25 else .1
             elif target['box'][3]>=476:step=.05
-            if depth is not None:step=min(step,max(0,depth-.045))
-            if step<.005:return ('turn',{'degrees':8 if bearing>=0 else -8},'camera_near_alignment')
+            if depth is not None:step=min(step,max(0,depth-.035))
+            if step<.0005:return ('turn',{'degrees':8 if bearing>=0 else -8},'camera_near_alignment')
             return ('move',{'distance':math.floor(step*10000)/10000},'camera_object_approach')
 
         # Observe bounded green/etc floor components; cyan wall trim is a different

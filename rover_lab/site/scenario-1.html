@@ -10,7 +10,7 @@
 <main class="wrap">
   <div class="page-intro">
     <span class="tag kicker">Scenario 1 / Operator console</span>
-    <h1>Red sphere delivery</h1>
+    <h1>Rover command console</h1>
     <nav id="scenario-switch" class="segmented scenario-switch" aria-label="Choose a scenario">
       <a class="button" href="/scenario-1" aria-current="page">Scenario 1</a>
       <a class="button" href="/jury">Scenario 2</a>
@@ -22,18 +22,20 @@
       <form id="controls">
         <label for="run-mode">Run mode</label>
         <select id="run-mode">
-          <option value="offline">Offline rehearsal · no model calls</option>
+          <option value="local">Local commands · no API key</option>
           <option value="live" disabled>Claude Haiku 4.5 · live API</option>
         </select>
         <label for="decision-cap">Maximum decisions</label>
         <input id="decision-cap" type="number" min="1" max="60" step="1" value="50" disabled>
-        <label for="command">Fetch command</label>
+        <label for="command">Your command</label>
         <textarea id="command" rows="2" required disabled>Fetch the red sphere and drop it in the green zone</textarea>
         <div class="actions">
           <button id="start" class="primary" disabled>Start fetch</button>
           <button id="reset" type="button" disabled>Reset layout</button>
         </div>
       </form>
+      <p class="muted">Local examples: “bring the red ball to the green zone” or “move forward 50 cm, turn left 90 degrees”. Fetch colors: red, green, blue, purple, yellow. Shapes: sphere/ball, cube/box, cylinder, cone. Movement also supports backward, right, pick up, and drop. Unsupported wording is rejected before starting.</p>
+      <p id="interpreted-command" class="muted"></p>
       <p id="feedback" role="status"></p>
       <p id="status" class="muted" role="status">Connecting…</p>
       <ol id="action-log" aria-label="Run progress"></ol>

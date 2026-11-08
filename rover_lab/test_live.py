@@ -28,6 +28,30 @@ class LiveRunTests(unittest.TestCase):
         self.live.operator = Mock(return_value={'state': 'Done', 'outcome': 'pass',
                                               'pov_manifest': 'private-path', 'pov_status': 'complete'})
 
+    def test_local_run_needs_no_key_and_never_constructs_provider(self):
+        def fake_run(command, **kwargs):
+            self.assertEqual(kwargs['provider'], 'local')
+            self.assertTrue(kwargs['camera_control'])
+            self.assertEqual(command, 'Fetch the red sphere and drop it in the green zone')
+            folder=Path(kwargs['output_root'])/'run-local';folder.mkdir()
+            return SimpleNamespace(status='engine_done',decisions=33,usage={'input_tokens':0,'output_tokens':0},run_dir=folder)
+        with patch.dict(os.environ, {'ROVER_LIVE_ENABLED':'0','ANTHROPIC_API_KEY':'','OPENAI_API_KEY':''}), \
+             patch('agent.claude.ClaudeClient', side_effect=AssertionError('Provider constructed')), \
+             patch('rover_lab.live.run_command',side_effect=fake_run):
+            self.live.start('bring the red ball to the green zone',50,'local')
+            self.live.thread.join(3)
+        status=self.live.status()
+        self.assertFalse(status['running'])
+        self.assertEqual(status['execution_mode'],'local')
+        self.assertEqual(status['result']['provider_calls'],0)
+        self.assertIsNone(status['model'])
+        self.assertFalse((self.live.attempt/'claude_requests.jsonl').exists())
+
+    def test_local_parse_error_and_unknown_mode_do_not_start_engine(self):
+        with self.assertRaises(ValueError):self.live.start('move forward 1 m then dance',50,'local')
+        with self.assertRaises(ValueError):self.live.start('drop',50,'other')
+        self.engine.assert_not_called();self.live.operator.assert_not_called()
+
     def test_disabled_missing_key_and_bad_caps_never_start_engine_or_provider(self):
         for cap in (0, 61, 2.5, True, '25', None):
             with self.assertRaises(ValueError):
@@ -192,6 +216,20 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
   elements['run-mode'].value='offline'; elements['run-mode'].handlers.change();
   assert.equal(elements.feedback.textContent,'');
   assert.equal(calls.filter(c=>c.options.method==='POST').length,0);
+  data['/state']={state:'Idle',holding:false,retry_count:0};
+  data['/live/status']={...data['/live/status'],enabled:false,ready:false,result:null,running:false};
+  elements['run-mode'].value='local'; elements.command.value='move forward 50 cm';
+  elements['decision-cap'].value='50';
+  await vm.runInContext('refresh()',context);
+  elements['run-mode'].handlers.change();
+  assert.equal(elements.command.disabled,false);
+  assert.equal(elements.command.value,'move forward 50 cm');
+  assert.equal(elements.start.disabled,false);
+  await elements.controls.handlers.submit({preventDefault(){}});
+  const sent=calls.filter(c=>c.options.method==='POST').at(-1);
+  assert.equal(sent.path,'/scenario-1/api/live/start');
+  assert.equal(JSON.parse(sent.options.body).execution_mode,'local');
+  assert.equal(JSON.parse(sent.options.body).command,'move forward 50 cm');
 })().catch(error=>{console.error(error);process.exitCode=1;});
 '''
         completed = subprocess.run(['node', '-e', harness, str(script)], capture_output=True, text=True, timeout=10)

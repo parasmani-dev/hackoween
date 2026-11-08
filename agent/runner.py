@@ -31,7 +31,7 @@ SYSTEM_PROMPT = (
     "Only after pickup succeeds, navigate to the requested zone. "
     "Avoid all contact, including with the requested target: pickup is a reach action, not a bump. "
     "When depth is present it is the nearest surface on one forward ray from a sensor 0.27 m "
-    "ahead of the rover center. Leave 0.04 m measured clearance. It gives no object identity "
+    "ahead of the rover center. Respect the reported max_forward_distance clearance. It gives no object identity "
     "and does not cover the sides of the chassis. Check the full visible swept path and turn "
     "toward open floor if another object blocks it. If the selected target is centered and "
     "depth is at most 0.08 m, try pickup BEFORE any further forward movement. "
@@ -194,6 +194,7 @@ def _pose_changed(before, after):
 def run_command(
     command, *, engine=None, claude=None, output_root="runs",
     max_decisions=MAX_DECISIONS, audit_requests=False, provider="claude",
+    camera_control=False,
 ):
     """Return why the agent stopped. The operator owns evaluation and lifecycle."""
     if not isinstance(command, str) or not command.strip():
@@ -204,6 +205,8 @@ def run_command(
     if audit_requests and claude is not None:
         raise ValueError("Configure auditing on the supplied Claude client.")
     clients = {"claude": ClaudeClient, "openai": OpenAIClient}
+    if provider == "local" and claude is not None:
+        clients["local"] = None
     if provider not in clients:
         raise ValueError("Choose the claude or openai provider.")
     root = Path(output_root).resolve()
@@ -248,7 +251,8 @@ def run_command(
                 depth_reader = getattr(engine, "depth", None)
                 depth = depth_reader() if callable(depth_reader) else None
                 depth = depth if finite_number(depth) and 0 <= depth <= 10 else None
-                max_forward = max(0.0, depth - 0.04) if depth is not None else None
+                clearance = .03 if camera_control or camera_navigator.task is not None else .04
+                max_forward = max(0.0, depth - clearance) if depth is not None else None
                 context = json.dumps({
                     "command": command,
                     "state": state,
@@ -317,12 +321,12 @@ def run_command(
                                                        depth=depth, disabled=disabled, history=history,
                                                        allow_exploration=blocked_carry_heading is None,
                                                        recovering=state['state'] == 'Blocked')
-                if proposed.target_view is not None and state['state'] != 'Blocked':
+                if (proposed.target_view is not None or camera_control) and state['state'] != 'Blocked':
                     grounded = camera_navigator.decide(run_dir / frame_name, state, depth, disabled)
                     if grounded is not None:
                         name, args, correction = grounded
                         decision = replace(decision, name=name, args=args)
-                if proposed.target_view is not None:
+                if proposed.target_view is not None or camera_control:
                     decision_report = {'proposal': {'tool': proposed.name, 'args': proposed.args},
                                        'target_view': proposed.target_view,
                                        'visual_observation': proposed.observation,
@@ -349,6 +353,9 @@ def run_command(
                 )):
                     log_decision(step, timestamp, decision.name, decision.args,
                                  {"outcome": "not_dispatched", "reason": "navigation_guard"}, frame_name)
+                    if provider == 'local' and claude.stop_on_failure:
+                        status = 'local_action_rejected'
+                        break
                     rejected_turns += 1
                     if rejected_turns >= MAX_REJECTED_TURNS:
                         status = "navigation_stalled"
@@ -364,6 +371,9 @@ def run_command(
                 action = {"tool": decision.name, "args": decision.args, "result": result}
                 log_decision(step, timestamp, decision.name, decision.args, result, frame_name)
                 if status == "action_uncertain":
+                    break
+                if provider == 'local' and claude.stop_on_failure and not result.get('success'):
+                    status = 'local_action_failed'
                     break
                 if decision.name in ("pickup", "drop") and (
                     not result["success"] or result.get("in_zone") is False
@@ -389,6 +399,9 @@ def run_command(
                 terminal = _terminal_status(state)
                 if terminal:
                     status = terminal
+                    break
+                if provider == 'local' and claude.complete:
+                    status = 'local_complete'
                     break
     except ClaudeError:
         status = "claude_error"

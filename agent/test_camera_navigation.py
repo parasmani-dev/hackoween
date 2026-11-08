@@ -44,6 +44,15 @@ class CameraNavigationTests(unittest.TestCase):
             self.assertEqual(nav.decide(p,{**state,'x':1.48},None)[0],'drop')
             self.assertNotEqual(nav.decide(p,{**state,'x':1.48,'holding':False},None)[0],'drop')
 
+    def test_recently_aligned_cylinder_can_be_picked_when_clipped(self):
+        with TemporaryDirectory() as root:
+            p=Path(root)/'frame.png';Image.new('RGB',(640,480),(190,190,180)).save(p)
+            nav=CameraNavigator('Fetch the blue cylinder and drop it in the green zone')
+            nav.last_target={'color':'blue'};nav.last_target_pose=(0,0,0)
+            state={'x':.05,'y':0,'heading':0,'holding':False}
+            self.assertEqual(nav.decide(p,state,.08)[0],'pickup')
+            self.assertEqual(nav.decide(p,{**state,'heading':90},.08)[0],'turn')
+
     def test_relational_command_does_not_get_simple_color_selector(self):
         nav=CameraNavigator('Fetch the blue cylinder beside the yellow cone and drop it in the green zone')
         self.assertIsNone(nav.task)

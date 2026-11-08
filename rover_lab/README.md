@@ -96,7 +96,8 @@ keep depth unavailable. The engine serializes range reads with motion and return
 only a finite metre distance (0–10) or null, never object metadata.
 
 Before dispatch, the agent rejects positive moves exceeding the latest measured
-range minus 0.04 m clearance. Rejections are logged without movement or a new
+range minus the configured positive clearance (0.03 m for calibrated camera tasks,
+0.04 m for the general/manual path). Rejections are logged without movement or a new
 image. The prompt asks for direct alignment and a pickup trial before contact.
 Controller corrections are recorded alongside the model proposal. The approach
 controller may choose a shorter move within the measured clearance.
@@ -152,3 +153,64 @@ python -B -m rover_lab.verify_camera_fetch_offline --engine-port 19336 --output 
 This sends deliberately inaccurate mocked AI proposals through the production
 controller and real Webots. It validates physical pickup/routing/drop and recording;
 it is not a paid Haiku acceptance run.
+
+
+## Dual command modes (Scenario 1)
+
+The console defaults to **Local commands**. Type your own command and press
+**Start local run**. No model key or provider request is needed. Select **Claude
+Haiku 4.5 · live API** to use the existing API-backed path; this still requires
+`ANTHROPIC_API_KEY` and `-EnableLiveAgent`. Both modes use the same run reservation,
+engine actions, camera, safety checks, reset and native POV capture. Mode/provider
+and interpreted command are retained in private attempt artifacts.
+
+Local grammar supports:
+
+- `bring the red ball to the green zone`
+- `fetch the blue cylinder and drop it in the green zone`
+- `retrieve the yellow cone then place it in the green area`
+- `move forward 1 metre, turn left 90 degrees, pick up`
+- `go backward 25 cm; rotate clockwise 45 degrees; drop`
+
+Fetch verbs: fetch, bring, get, retrieve, pick up/pickup/pick. Colors: red, green,
+blue, purple, yellow. Shapes: sphere/ball, cube/box, cylinder, cone. Each fetch must
+name a destination zone. Manual sequences support move/drive/go with forward or
+backward direction, turn/rotate left/right/clockwise/counterclockwise, pickup and
+drop, separated by commas, semicolons, `and`, or `then`. Distances require explicit
+m/metres/meters/cm and turns degrees/deg. Positive moves up to 10 m and turns up
+to 360 degrees are split into <=25 cm and <=45 degree actions. Expansion is capped
+at 60 actions, and the chosen per-run action limit remains binding.
+
+This is a bounded local command language, not unrestricted natural-language
+reasoning or executable Python/shell input. Unknown or ambiguous wording rejects
+the whole command before Start, with syntax guidance. Manual sequences stop on a
+failed or rejected action, instead of silently running the next instruction.
+Sequence completion is reported separately from fetch scoring. Camera fetches
+retain the simple-color/shape and flat-floor limitations described above.
+
+Start locally without an API key:
+
+```powershell
+./rover_lab/start.ps1 -WebotsExe '<existing Webots executable>' -PortOffset 700
+```
+
+Verify both HTTP modes and the real local controller with provider transports
+blocked and both provider keys empty:
+
+```powershell
+python -B -m unittest agent.test_local_commands rover_lab.test_live rover_lab.test_lifecycle -q
+python -B -m rover_lab.verify_dual_modes --engine-port 19536 --legacy-port 8812 --output runs/dual-modes-check
+```
+
+The existing preset Scenario 1 rehearsal endpoints and Scenario 2 jury demo remain
+available for compatibility. No paid run is automatically started by mode selection,
+page load, reset or service startup.
+
+
+Verification on this branch: no-key local HTTP fetch and sequence tests pass with
+both provider transports blocked. Blue-cylinder and yellow-cone full camera fetches
+also pass with zero contacts. Clipped cylinders retain their recent visual track;
+cone pickup uses the calibrated 3 cm sensor clearance (sensor is mounted 1 cm
+forward of the chassis face) with small final increments, rather than turning
+forever just outside reach. Earlier failed prototypes remain in local run artifacts.
+These local-controller results do not claim a new live API acceptance result.

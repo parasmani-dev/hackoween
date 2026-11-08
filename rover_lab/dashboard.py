@@ -440,7 +440,7 @@ def create_server(port, engine_port):
                     if offline_status.get("status") == "running":
                         return self.reply({"error": "Offline rehearsal already active"}, status=409)
                     if upstream == "/live/start":
-                        live.start(data.get("command"), data.get("max_decisions"))
+                        live.start(data.get("command"), data.get("max_decisions"), data.get("execution_mode", "live"))
                         return self.reply({"state": "Locate"}, status=202)
                     return self.reply(live.reset())
                 except ValueError as error:

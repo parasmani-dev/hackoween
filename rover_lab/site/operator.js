@@ -30,41 +30,48 @@ function render() {
   const idle = snapshot?.state.state === 'Idle';
   mode.disabled = !snapshot || running || !idle;
   mode.querySelector('[value="live"]').disabled = !snapshot?.live.enabled || !snapshot?.live.ready;
-  command.disabled = !live || running || !idle;
-  cap.disabled = !live || running || !idle;
+  command.disabled = running || !idle;
+  cap.disabled = running || !idle;
   start.disabled = !snapshot || running || !idle || (live && (!snapshot.live.enabled || !snapshot.live.ready));
   reset.disabled = !snapshot || running || idle;
-  if (!live && snapshot) command.value = snapshot.offline.command;
-  start.textContent = live ? 'Start Haiku fetch' : 'Start offline rehearsal';
+  if (mode.value === 'offline' && snapshot) command.value = snapshot.offline.command;
+  start.textContent = live ? 'Start Haiku fetch' : 'Start local run';
   byId('mode').textContent = live
     ? 'Claude Haiku 4.5 + camera controller · Start makes paid API calls · decision cap applies'
-    : 'Offline scripted rehearsal · zero model calls';
+    : 'Local parser + camera navigation · no API key or model calls';
   if (snapshot) {
     const state = snapshot.state;
     byId('status').textContent = `${state.state} · Holding: ${state.holding ? 'yes' : 'no'} · Retries: ${state.retry_count}`;
     const result = snapshot.live.result;
-    byId('action-log').replaceChildren(...(live ? snapshot.live.actions : []).map(action => {
+    byId('action-log').replaceChildren(...(mode.value !== 'offline' ? snapshot.live.actions : []).map(action => {
       const item = document.createElement('li');
       item.textContent = `${action.step}: ${action.tool ?? 'Provider error'} ${JSON.stringify(action.args)} · ${JSON.stringify(action.result)}`;
       return item;
     }));
     if (snapshot.live.running) {
-      const phase = {starting: 'Preparing the rover', deciding: 'Haiku run in progress',
+      const phase = {starting: 'Preparing the rover', deciding: snapshot.live.execution_mode === 'local' ? 'Local run in progress' : 'Haiku run in progress',
         finishing: 'Finalizing verdict and recording'}[snapshot.live.phase] || 'Haiku run in progress';
       byId('feedback').textContent = `${phase} · ${snapshot.live.decisions ?? 0} / ${snapshot.live.max_decisions ?? cap.value} decisions`;
-    } else if (runMode === 'live' && result) {
+    } else if ((runMode === 'live' || runMode === 'local') && result) {
       const notes = [];
+
+      if (result.status === 'local_action_failed') notes.push('Local sequence stopped after a failed action. Check the camera and reset before retrying.');
+      if (result.status === 'local_action_rejected') notes.push('Local sequence stopped because an action was unsafe or incompatible with the holding state.');
       if (result.status === 'navigation_stalled') notes.push('Run stopped: navigation could not make progress after repeated blocked proposals. It is not still running. Reset layout before a new run.');
       if (result.status === 'decision_limit') notes.push('Run stopped at the configured call limit. Reset layout before a new run.');
       if (result.finish_confirmed === false) notes.push('Finish unconfirmed; check the engine before resetting.');
       if (result.status === 'artifact_error') notes.push('Run evidence could not be saved.');
       if (result.capture_status && result.capture_status !== 'complete') notes.push('Recording is incomplete or unconfirmed.');
-      byId('feedback').textContent = `${result.outcome} · ${result.status} · ${result.decisions ?? 0} decisions${notes.length ? ' · ' + notes.join(' ') : ''}`;
+      const local = runMode === 'local';
+      const outcome = local && result.status === 'local_complete' ? 'Local sequence completed' : result.outcome;
+      byId('feedback').textContent = `${outcome} · ${result.decisions ?? 0} ${local ? 'actions · 0 API calls' : 'decisions'}${notes.length ? ' · ' + notes.join(' ') : ''}`;
     } else if (runMode === 'offline') {
       byId('feedback').textContent = {running: 'Offline rehearsal running.', pass: 'PASS: Red sphere delivered.',
         fail: 'Offline rehearsal failed. Check the local logs.', idle: ''}[snapshot.offline.status] || '';
     }
   }
+  const interpreted = byId('interpreted-command');
+  if (interpreted) interpreted.textContent = mode.value === 'local' && snapshot?.live.interpreted_command ? `Interpreted as: ${snapshot.live.interpreted_command}` : '';
   if (runSummary) runSummary.textContent = byId('feedback').textContent || (snapshot ? 'Ready. Start a run using the controls above.' : 'Connecting to run status...');
 }
 
@@ -78,7 +85,7 @@ byId('controls').addEventListener('submit', async event => {
   if (start.disabled) return;
   const selectedMode = mode.value;
   const decisions = Number(cap.value);
-  if (selectedMode === 'live' && (!Number.isInteger(decisions) || decisions < 1 || decisions > 60)) {
+  if (!Number.isInteger(decisions) || decisions < 1 || decisions > 60) {
     byId('feedback').textContent = 'Choose a whole-number decision cap from 1 to 60.';
     return;
   }
@@ -86,10 +93,10 @@ byId('controls').addEventListener('submit', async event => {
   revision += 1;
   render();
   try {
-    await api(selectedMode === 'live' ? '/live/start' : '/run/start', selectedMode === 'live'
-      ? {command: command.value.trim(), max_decisions: decisions} : {command: command.value.trim()});
+    await api(selectedMode !== 'offline' ? '/live/start' : '/run/start', selectedMode !== 'offline'
+      ? {command: command.value.trim(), max_decisions: decisions, execution_mode: selectedMode} : {command: command.value.trim()});
     runMode = selectedMode;
-    byId('feedback').textContent = selectedMode === 'live' ? 'Haiku run starting…' : 'Offline rehearsal starting…';
+    byId('feedback').textContent = selectedMode === 'live' ? 'Haiku run starting…' : 'Local command starting…';
   } catch (error) { byId('feedback').textContent = error.message; }
   finally { revision += 1; pending = false; }
 });
@@ -112,7 +119,7 @@ async function refresh() {
     const [state, offline, live] = await Promise.all([api('/state'), api('/offline-demo'), api('/live/status')]);
     if (!pending && observedRevision === revision) {
       snapshot = {state, offline, live};
-      if (live.running || (runMode === null && live.result)) { mode.value = 'live'; runMode = 'live'; }
+      if (live.running || (runMode === null && live.result)) { mode.value = live.execution_mode || 'live'; runMode = mode.value; }
       if (live.running && live.command) command.value = live.command;
       if (live.running && live.max_decisions) cap.value = live.max_decisions;
       if (offline.status === 'running') { mode.value = 'offline'; runMode = 'offline'; }
